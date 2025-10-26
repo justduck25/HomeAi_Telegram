@@ -9,11 +9,31 @@ export async function textToSpeech(text: string): Promise<Buffer | null> {
       .replace(/\n{3,}/g, '\n\n') // Giảm line breaks
       .trim();
 
-    // Giới hạn độ dài text (Google Translate TTS có giới hạn ~200 ký tự mỗi request)
-    const maxLength = 200;
-    const finalText = cleanText.length > maxLength 
-      ? cleanText.substring(0, maxLength) + "..."
-      : cleanText;
+    // Giới hạn độ dài text (Google Translate TTS có giới hạn ~100 ký tự mỗi request)
+    const maxLength = 100;
+    let finalText = cleanText;
+    
+    if (cleanText.length > maxLength) {
+      // Cắt text thông minh tại dấu câu gần nhất
+      const truncated = cleanText.substring(0, maxLength);
+      const lastPunctuation = Math.max(
+        truncated.lastIndexOf('.'),
+        truncated.lastIndexOf('!'),
+        truncated.lastIndexOf('?'),
+        truncated.lastIndexOf(',')
+      );
+      
+      if (lastPunctuation > maxLength * 0.7) {
+        // Nếu có dấu câu gần cuối, cắt tại đó
+        finalText = truncated.substring(0, lastPunctuation + 1);
+      } else {
+        // Nếu không, cắt tại từ cuối cùng
+        const lastSpace = truncated.lastIndexOf(' ');
+        finalText = lastSpace > maxLength * 0.7 
+          ? truncated.substring(0, lastSpace) + "..."
+          : truncated + "...";
+      }
+    }
 
     if (!finalText || finalText.trim().length === 0) {
       console.log("Text rỗng, không thể tạo voice");
