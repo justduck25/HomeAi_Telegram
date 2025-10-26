@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI, type Content } from "@google/generative-ai";
-import { mongodb, type ContextMessage } from "@/lib/mongodb";
+import { mongodb, updateUserPreferences, getUserById, saveUserLocation, getUserLocation, type ContextMessage } from "@/lib/mongodb";
 import { textToSpeech, sendVoiceMessage, sendRecordingAction, isTextSuitableForTTS } from "@/lib/text-to-speech";
+import { getWeatherData, formatWeatherMessage, getWeatherForecast, formatForecastMessage } from "@/lib/weather";
+// import { formatLocationName } from "@/lib/location"; // Không cần thiết nữa
 
 // Admin configuration - Danh sách admin user IDs
 const ADMIN_USER_IDS = [
-  539971498,  // Admin hiện tại
-  // Thêm user ID của @justduck25 khi có
+  539971498,   // Admin hiện tại
+  6539971498,  // @justduck25 - Nguyen Doan Trong Duc
 ];
 
 // Admin usernames để reference (chỉ để ghi chú)
@@ -20,6 +22,44 @@ export const runtime = "nodejs";
 // Function kiểm tra quyền admin
 function isAdmin(userId: number | undefined): boolean {
   return userId !== undefined && ADMIN_USER_IDS.includes(userId);
+}
+
+// Hàm gửi tin nhắn với inline keyboard yêu cầu location
+async function requestLocationMessage(chatId: string, message: string): Promise<boolean> {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken) return false;
+
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: 'HTML',
+        reply_markup: {
+          keyboard: [
+            [{
+              text: "📍 Chia sẻ vị trí hiện tại",
+              request_location: true
+            }],
+            [{
+              text: "❌ Hủy"
+            }]
+          ],
+          one_time_keyboard: true,
+          resize_keyboard: true
+        }
+      })
+    });
+
+    return response.ok;
+  } catch (error) {
+    console.error('Error sending location request:', error);
+    return false;
+  }
 }
 
 // Hàm tìm kiếm web với Google Custom Search API
@@ -168,6 +208,13 @@ function getCommandsList(userId?: number): string {
     `🔍 **Tìm kiếm:**\n` +
     `• \`/search <từ khóa>\` - Tìm kiếm thông tin trên web\n` +
     `• \`/image <từ khóa>\` - Tìm kiếm hình ảnh\n\n` +
+    `🌤️ **Thời tiết:**\n` +
+    `• \`/weather\` - Xem thời tiết (tự động yêu cầu vị trí)\n` +
+    `• \`/weather <tên thành phố>\` - Xem thời tiết theo tên thành phố\n` +
+    `• \`/forecast\` - Dự báo 5 ngày (tự động yêu cầu vị trí)\n` +
+    `• \`/forecast <tên thành phố>\` - Dự báo theo tên thành phố\n` +
+    `• \`/location\` - Quản lý vị trí đã lưu\n` +
+    `• \`/daily on/off\` - Bật/tắt thông báo thời tiết hàng ngày (6:00 sáng)\n\n` +
     `🎤 **Voice:**\n` +
     `• \`/voice <câu hỏi>\` - Trả lời bằng giọng nói\n\n` +
     `🧠 **Bộ nhớ:**\n` +
@@ -271,12 +318,21 @@ type TelegramAudio = {
   file_size?: number;
 };
 
+type TelegramLocation = {
+  longitude: number;
+  latitude: number;
+  live_period?: number;
+  heading?: number;
+  proximity_alert_radius?: number;
+};
+
 type TelegramMessage = {
   message_id: number;
   from?: {
     id: number;
     is_bot?: boolean;
     first_name: string;
+    last_name?: string;
     username?: string;
   };
   chat: {
@@ -288,6 +344,7 @@ type TelegramMessage = {
   photo?: TelegramPhotoSize[];
   voice?: TelegramVoice;
   audio?: TelegramAudio;
+  location?: TelegramLocation;
   caption?: string;
 };
 
@@ -307,7 +364,7 @@ function getMessage(update: TelegramUpdate): TelegramMessage | null {
 // Hàm cleanupOldContext đã được chuyển vào MongoDB class
 
 // Hàm gửi tin nhắn về Telegram với fallback mechanism
-async function sendTelegramMessage(chatId: number, text: string) {
+async function sendTelegramMessage(chatId: number, text: string, options?: Record<string, unknown>) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (!botToken) {
     throw new Error("TELEGRAM_BOT_TOKEN không được cấu hình");
@@ -374,6 +431,7 @@ async function sendTelegramMessage(chatId: number, text: string) {
           text: message,
           parse_mode: "Markdown",
           disable_web_page_preview: true,
+          ...options
         }),
       });
 
@@ -393,6 +451,7 @@ async function sendTelegramMessage(chatId: number, text: string) {
               chat_id: chatId,
               text: message,
               disable_web_page_preview: true,
+              ...options
             }),
           });
           
@@ -472,6 +531,19 @@ function detectMimeType(buffer: Buffer): string {
   }
   
   return "image/jpeg"; // Default fallback
+}
+
+// Hàm format location name cho UserLocation từ mongodb
+function formatUserLocationName(location: { latitude: number; longitude: number; city?: string; country?: string }): string {
+  if (location.city && location.country) {
+    return `${location.city}, ${location.country}`;
+  } else if (location.city) {
+    return location.city;
+  } else if (location.country) {
+    return location.country;
+  } else {
+    return `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`;
+  }
 }
 
 // Hàm gửi typing indicator
@@ -695,6 +767,7 @@ export async function POST(req: NextRequest) {
       adminInfo += `• \`/admin\` - Xem panel admin\n`;
       adminInfo += `• \`/stats\` - Xem thống kê hệ thống\n`;
       adminInfo += `• \`/broadcast <message>\` - Gửi tin nhắn tới tất cả users\n`;
+      adminInfo += `• \`/testdaily\` - Test thông báo thời tiết hàng ngày\n`;
       adminInfo += `• \`/getid\` - Lấy user ID của người gửi tin nhắn\n`;
       
       await sendTelegramMessage(chatId, adminInfo);
@@ -705,7 +778,7 @@ export async function POST(req: NextRequest) {
     if (/^\/getid/.test(text)) {
       const username = message.from?.username ? `@${message.from.username}` : "Không có username";
       const firstName = message.from?.first_name || "Không có tên";
-      const lastName = (message.from as any)?.last_name || "";
+      const lastName = message.from?.last_name || "";
       const fullName = `${firstName} ${lastName}`.trim();
       
       let userInfo = `🆔 **Thông tin User ID**\n\n`;
@@ -816,6 +889,47 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
     
+    // Xử lý lệnh test daily weather (chỉ admin)
+    if (/^\/testdaily/.test(text)) {
+      if (!isAdmin(userId)) {
+        await sendTelegramMessage(chatId, "❌ Bạn không có quyền sử dụng lệnh này!");
+        return NextResponse.json({ ok: true });
+      }
+      
+      await sendTypingAction(chatId);
+      await sendTelegramMessage(chatId, "🧪 Đang test thông báo thời tiết hàng ngày...");
+      
+      try {
+        // Gọi API cron để test
+        const baseUrl = process.env.VERCEL_URL 
+          ? `https://${process.env.VERCEL_URL}` 
+          : process.env.NEXTAUTH_URL || 'http://localhost:3000';
+        
+        const response = await fetch(`${baseUrl}/api/cron/daily-weather`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            telegramId: userId?.toString()
+          })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+          await sendTelegramMessage(chatId, "✅ Test thông báo thời tiết thành công! Kiểm tra tin nhắn vừa nhận.");
+        } else {
+          await sendTelegramMessage(chatId, `❌ Test thất bại: ${result.error}`);
+        }
+      } catch (error) {
+        console.error('Error testing daily weather:', error);
+        await sendTelegramMessage(chatId, "❌ Có lỗi khi test thông báo thời tiết.");
+      }
+      
+      return NextResponse.json({ ok: true });
+    }
+    
     // Xử lý lệnh search
     if (/^\/search\s+/.test(text)) {
       const searchQuery = text.replace(/^\/search\s+/, '').trim();
@@ -863,6 +977,297 @@ export async function POST(req: NextRequest) {
         await sendTelegramMessage(chatId, "❌ Không tìm thấy hình ảnh hoặc dịch vụ tìm kiếm chưa được cấu hình.");
       }
       
+      return NextResponse.json({ ok: true });
+    }
+
+    // Xử lý lệnh thời tiết hiện tại
+    if (/^\/weather/.test(text)) {
+      const cityName = text.replace(/^\/weather\s*/, '').trim();
+      
+      // Nếu có tên thành phố, sử dụng như cũ
+      if (cityName) {
+        await sendTypingAction(chatId);
+        await sendTelegramMessage(chatId, `🌤️ Đang lấy thông tin thời tiết cho "${cityName}"...`);
+        
+        try {
+          const weatherData = await getWeatherData(cityName);
+          
+          if (weatherData) {
+            const weatherMessage = formatWeatherMessage(weatherData, cityName);
+            await sendTelegramMessage(chatId, weatherMessage);
+          } else {
+            await sendTelegramMessage(chatId, `❌ Không tìm thấy thông tin thời tiết cho "${cityName}". Vui lòng kiểm tra lại tên thành phố!`);
+          }
+        } catch (error) {
+          console.error('Lỗi lấy thời tiết:', error);
+          if (error instanceof Error && error.message.includes('API key')) {
+            await sendTelegramMessage(chatId, "❌ Tính năng thời tiết chưa được cấu hình. Vui lòng liên hệ admin!");
+          } else {
+            await sendTelegramMessage(chatId, "❌ Có lỗi khi lấy thông tin thời tiết. Vui lòng thử lại sau!");
+          }
+        }
+        
+      return NextResponse.json({ ok: true });
+    }
+
+      // Nếu không có tên thành phố, kiểm tra vị trí đã lưu
+      try {
+        await mongodb.connect();
+        const savedLocation = await getUserLocation(String(message.from?.id));
+        
+        if (savedLocation) {
+          await sendTypingAction(chatId);
+          const locationName = formatUserLocationName(savedLocation);
+          await sendTelegramMessage(chatId, `🌤️ Đang lấy thông tin thời tiết cho vị trí đã lưu: ${locationName}...`);
+          
+          const weatherData = await getWeatherData(savedLocation.latitude, savedLocation.longitude);
+          
+          if (weatherData) {
+            const weatherMessage = formatWeatherMessage(weatherData, locationName);
+            await sendTelegramMessage(chatId, weatherMessage);
+          } else {
+            await sendTelegramMessage(chatId, "❌ Không thể lấy thông tin thời tiết cho vị trí đã lưu!");
+          }
+          
+          return NextResponse.json({ ok: true });
+        }
+      } catch (error) {
+        console.error('Error checking saved location:', error);
+      }
+      
+      // Nếu không có vị trí đã lưu, yêu cầu location real-time
+      await requestLocationMessage(
+        String(chatId),
+        "🌤️ <b>Dự báo thời tiết</b>\n\n" +
+        "Để xem thời tiết, bạn có thể:\n" +
+        "• Chia sẻ vị trí hiện tại (nhấn nút bên dưới)\n" +
+        "• Hoặc gõ: <code>/weather Tên thành phố</code>\n\n" +
+        "📍 <i>Chia sẻ vị trí để có dự báo chính xác nhất!</i>"
+      );
+      
+      return NextResponse.json({ ok: true });
+    }
+    
+    // Xử lý lệnh dự báo thời tiết
+    if (/^\/forecast/.test(text)) {
+      const cityName = text.replace(/^\/forecast\s*/, '').trim();
+      
+      // Nếu có tên thành phố, sử dụng như cũ
+      if (cityName) {
+        await sendTypingAction(chatId);
+        await sendTelegramMessage(chatId, `🌤️ Đang lấy dự báo thời tiết 5 ngày cho "${cityName}"...`);
+        
+        try {
+          const forecastData = await getWeatherForecast(cityName);
+          
+          if (forecastData) {
+            const forecastMessage = formatForecastMessage(forecastData, cityName);
+            await sendTelegramMessage(chatId, forecastMessage);
+          } else {
+            await sendTelegramMessage(chatId, `❌ Không tìm thấy dự báo thời tiết cho "${cityName}". Vui lòng kiểm tra lại tên thành phố!`);
+          }
+        } catch (error) {
+          console.error('Lỗi lấy dự báo thời tiết:', error);
+          if (error instanceof Error && error.message.includes('API key')) {
+            await sendTelegramMessage(chatId, "❌ Tính năng dự báo thời tiết chưa được cấu hình. Vui lòng liên hệ admin!");
+          } else {
+            await sendTelegramMessage(chatId, "❌ Có lỗi khi lấy dự báo thời tiết. Vui lòng thử lại sau!");
+          }
+        }
+        
+        return NextResponse.json({ ok: true });
+      }
+      
+      // Nếu không có tên thành phố, kiểm tra vị trí đã lưu
+      try {
+        await mongodb.connect();
+        const savedLocation = await getUserLocation(String(message.from?.id));
+        
+        if (savedLocation) {
+          await sendTypingAction(chatId);
+          const locationName = formatUserLocationName(savedLocation);
+          await sendTelegramMessage(chatId, `🌤️ Đang lấy dự báo thời tiết 5 ngày cho vị trí đã lưu: ${locationName}...`);
+          
+          const forecastData = await getWeatherForecast(savedLocation.latitude, savedLocation.longitude);
+          
+          if (forecastData) {
+            const forecastMessage = formatForecastMessage(forecastData, locationName);
+            await sendTelegramMessage(chatId, forecastMessage);
+          } else {
+            await sendTelegramMessage(chatId, "❌ Không thể lấy dự báo thời tiết cho vị trí đã lưu!");
+          }
+          
+          return NextResponse.json({ ok: true });
+        }
+      } catch (error) {
+        console.error('Error checking saved location for forecast:', error);
+      }
+      
+      // Nếu không có vị trí đã lưu, yêu cầu location real-time
+      await requestLocationMessage(
+        String(chatId),
+        "🌤️ <b>Dự báo thời tiết 5 ngày</b>\n\n" +
+        "Để xem dự báo, bạn có thể:\n" +
+        "• Chia sẻ vị trí hiện tại (nhấn nút bên dưới)\n" +
+        "• Hoặc gõ: <code>/forecast Tên thành phố</code>\n\n" +
+        "📍 <i>Chia sẻ vị trí để có dự báo chính xác nhất!</i>"
+      );
+      
+      return NextResponse.json({ ok: true });
+    }
+
+    // Xử lý lệnh quản lý vị trí
+    if (/^\/location/.test(text)) {
+      try {
+        await mongodb.connect();
+        const savedLocation = await getUserLocation(String(message.from?.id));
+        
+        if (savedLocation) {
+          const locationName = formatUserLocationName(savedLocation);
+          await sendTelegramMessage(
+            chatId,
+            `📍 <b>Vị trí đã lưu:</b>\n\n` +
+            `🌍 <b>Địa điểm:</b> ${locationName}\n` +
+            `📐 <b>Tọa độ:</b> ${savedLocation.latitude.toFixed(4)}, ${savedLocation.longitude.toFixed(4)}\n\n` +
+            `💡 <i>Sử dụng /weather hoặc /forecast để xem thời tiết cho vị trí này</i>\n\n` +
+            `🔄 <i>Để cập nhật vị trí, chia sẻ vị trí mới bất kỳ lúc nào!</i>`
+          );
+        } else {
+          await requestLocationMessage(
+            String(chatId),
+            "📍 <b>Quản lý vị trí</b>\n\n" +
+            "Bạn chưa lưu vị trí nào. Chia sẻ vị trí hiện tại để:\n" +
+            "• Xem thời tiết nhanh chóng\n" +
+            "• Không cần nhập tên thành phố mỗi lần\n" +
+            "• Có dự báo chính xác nhất\n\n" +
+            "📍 <i>Nhấn nút bên dưới để chia sẻ vị trí!</i>"
+          );
+        }
+      } catch (error) {
+        console.error('Error in location command:', error);
+        await sendTelegramMessage(chatId, "❌ Có lỗi khi kiểm tra vị trí đã lưu!");
+      }
+      
+      return NextResponse.json({ ok: true });
+    }
+
+    // Xử lý lệnh bật/tắt thông báo thời tiết hàng ngày
+    if (/^\/daily/.test(text)) {
+      const subCommand = text.replace(/^\/daily\s*/, '').trim().toLowerCase();
+      
+      try {
+        await mongodb.connect();
+        const telegramId = String(message.from?.id);
+        
+        if (subCommand === 'on' || subCommand === 'bật') {
+          // Bật thông báo hàng ngày
+          await updateUserPreferences(telegramId, { dailyWeatherNotification: true });
+          await sendTelegramMessage(
+            chatId,
+            "✅ <b>Đã bật thông báo thời tiết hàng ngày!</b>\n\n" +
+            "🌅 Bạn sẽ nhận được dự báo thời tiết lúc 6:00 sáng mỗi ngày\n" +
+            "📍 Thông báo sẽ dựa trên vị trí đã lưu của bạn\n\n" +
+            "💡 <i>Hãy đảm bảo đã chia sẻ vị trí bằng lệnh /location</i>\n\n" +
+            "🔕 Để tắt: <code>/daily off</code>"
+          );
+        } else if (subCommand === 'off' || subCommand === 'tắt') {
+          // Tắt thông báo hàng ngày
+          await updateUserPreferences(telegramId, { dailyWeatherNotification: false });
+          await sendTelegramMessage(
+            chatId,
+            "🔕 <b>Đã tắt thông báo thời tiết hàng ngày!</b>\n\n" +
+            "Bạn sẽ không còn nhận thông báo tự động nữa.\n\n" +
+            "🔔 Để bật lại: <code>/daily on</code>"
+          );
+        } else if (subCommand === 'status' || subCommand === 'trạng thái' || subCommand === '') {
+          // Kiểm tra trạng thái
+          const user = await getUserById(telegramId);
+          const isEnabled = user?.preferences?.dailyWeatherNotification || false;
+          const hasLocation = user?.location?.latitude && user?.location?.longitude;
+          
+          let statusMessage = `📊 <b>Trạng thái thông báo hàng ngày:</b>\n\n`;
+          statusMessage += `🔔 <b>Thông báo:</b> ${isEnabled ? '✅ Đã bật' : '❌ Đã tắt'}\n`;
+          statusMessage += `📍 <b>Vị trí:</b> ${hasLocation ? '✅ Đã lưu' : '❌ Chưa lưu'}\n`;
+          statusMessage += `⏰ <b>Thời gian:</b> 6:00 sáng mỗi ngày\n\n`;
+          
+          if (isEnabled && hasLocation && user.location) {
+            const locationName = formatUserLocationName(user.location);
+            statusMessage += `🌍 <b>Vị trí hiện tại:</b> ${locationName}\n\n`;
+            statusMessage += `✅ <i>Mọi thứ đã sẵn sàng! Bạn sẽ nhận thông báo thời tiết hàng ngày.</i>`;
+          } else if (isEnabled && !hasLocation) {
+            statusMessage += `⚠️ <i>Cần chia sẻ vị trí để nhận thông báo. Sử dụng /location</i>`;
+          } else {
+            statusMessage += `💡 <i>Sử dụng /daily on để bật thông báo</i>`;
+          }
+          
+          statusMessage += `\n\n📋 <b>Lệnh:</b>\n`;
+          statusMessage += `• <code>/daily on</code> - Bật thông báo\n`;
+          statusMessage += `• <code>/daily off</code> - Tắt thông báo\n`;
+          statusMessage += `• <code>/daily status</code> - Xem trạng thái`;
+          
+          await sendTelegramMessage(chatId, statusMessage);
+        } else {
+          await sendTelegramMessage(
+            chatId,
+            "❌ <b>Lệnh không hợp lệ!</b>\n\n" +
+            "📋 <b>Cách sử dụng:</b>\n" +
+            "• <code>/daily on</code> - Bật thông báo hàng ngày\n" +
+            "• <code>/daily off</code> - Tắt thông báo hàng ngày\n" +
+            "• <code>/daily status</code> - Xem trạng thái hiện tại\n\n" +
+            "🌅 <i>Thông báo sẽ được gửi lúc 6:00 sáng mỗi ngày</i>"
+          );
+        }
+      } catch (error) {
+        console.error('Error in daily command:', error);
+        await sendTelegramMessage(chatId, "❌ Có lỗi khi xử lý lệnh. Vui lòng thử lại sau!");
+      }
+      
+      return NextResponse.json({ ok: true });
+    }
+
+    // Xử lý location message (vị trí real-time)
+    if (message.location) {
+      await sendTypingAction(chatId);
+      await sendTelegramMessage(chatId, "📍 Đã nhận vị trí! Đang lấy thông tin thời tiết...");
+      
+      try {
+        await mongodb.connect();
+        const location = {
+          latitude: message.location.latitude,
+          longitude: message.location.longitude
+        };
+        
+        // Lưu vị trí vào user collection
+        const telegramId = String(message.from?.id);
+        await saveUserLocation(telegramId, location);
+        
+        // Lấy thời tiết ngay lập tức
+        const weatherData = await getWeatherData(location.latitude, location.longitude);
+        
+        if (weatherData) {
+          const locationName = `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`;
+          const weatherMessage = formatWeatherMessage(weatherData, locationName);
+          
+          await sendTelegramMessage(
+            chatId, 
+            `${weatherMessage}\n\n💾 <i>Vị trí đã được lưu để sử dụng cho lần sau!</i>`
+          );
+        } else {
+          await sendTelegramMessage(chatId, "❌ Không thể lấy thông tin thời tiết cho vị trí này!");
+        }
+      } catch (error) {
+        console.error('Error processing location:', error);
+        await sendTelegramMessage(chatId, "❌ Có lỗi khi xử lý vị trí. Vui lòng thử lại!");
+      }
+      
+      return NextResponse.json({ ok: true });
+    }
+
+    // Xử lý tin nhắn "❌ Hủy" để ẩn keyboard
+    if (text === "❌ Hủy") {
+      await sendTelegramMessage(chatId, "✅ Đã hủy!", {
+        reply_markup: { remove_keyboard: true }
+      });
       return NextResponse.json({ ok: true });
     }
 
