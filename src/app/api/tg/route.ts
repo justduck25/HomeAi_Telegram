@@ -1593,7 +1593,7 @@ export async function POST(req: NextRequest) {
 
     // Phát hiện xem có cần thông tin hệ thống không
     const needsSystemDetails = needsSystemInfo(text);
-    
+
     // Tạo history cho Gemini (bao gồm system prompt với thời gian thực và kết quả tìm kiếm)
     let systemPromptText = createSystemPrompt(searchResults || undefined, needsSystemDetails);
     

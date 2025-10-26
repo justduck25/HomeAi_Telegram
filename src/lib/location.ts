@@ -8,13 +8,24 @@ export interface LocationData {
 }
 
 /**
- * Reverse geocoding để lấy tên thành phố từ tọa độ
+ * Reverse geocoding để lấy tên thành phố từ tọa độ - sử dụng Nominatim OSM
  */
 export async function reverseGeocode(lat: number, lon: number): Promise<{ city?: string; country?: string }> {
   try {
+    // Import function từ weather.ts để tái sử dụng
+    const { reverseGeocodeNominatim } = await import('./weather');
+    
+    // Thử Nominatim OSM trước (miễn phí)
+    const locationName = await reverseGeocodeNominatim(lat, lon);
+    if (locationName) {
+      return { city: locationName };
+    }
+
+    // Fallback về OpenWeatherMap nếu có API key
     const apiKey = process.env.OPENWEATHER_API_KEY;
     if (!apiKey) {
-      throw new Error('OpenWeather API key not configured');
+      console.warn('Không có OpenWeatherMap API key để fallback reverse geocoding');
+      return {};
     }
 
     const response = await fetch(
