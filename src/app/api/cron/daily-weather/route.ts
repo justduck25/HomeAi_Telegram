@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mongodb } from "@/lib/mongodb";
+import { getAllUsers, getUserByTelegramId } from "@/lib/database";
 import { getWeatherData, formatWeatherMessage } from "@/lib/weather";
 
 // Hàm format location name cho UserLocation
@@ -54,15 +54,13 @@ async function sendTelegramMessage(chatId: string, message: string) {
 // Hàm lấy danh sách users đã bật thông báo hàng ngày
 async function getUsersWithDailyNotification() {
   try {
-    await mongodb.connect();
-    const db = mongodb.getDb();
-    const collection = db.collection('users');
+    const allUsers = await getAllUsers();
     
-    const users = await collection.find({
-      'preferences.dailyWeatherNotification': true,
-      'location.latitude': { $exists: true },
-      'location.longitude': { $exists: true }
-    }).toArray();
+    const users = allUsers.filter(user => 
+      user.preferences.dailyWeather && 
+      user.location?.latitude && 
+      user.location?.longitude
+    );
     
     return users;
   } catch (error) {
@@ -182,13 +180,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Lấy thông tin user
-    await mongodb.connect();
-    const db = mongodb.getDb();
-    const collection = db.collection('users');
+    const user = await getUserByTelegramId(telegramId);
     
-    const user = await collection.findOne({ telegramId: telegramId });
-    
-    if (!user || !user.preferences?.dailyWeatherNotification) {
+    if (!user || !user.preferences?.dailyWeather) {
       return NextResponse.json({ 
         error: 'User không tồn tại hoặc chưa bật thông báo hàng ngày' 
       }, { status: 404 });
@@ -202,7 +196,7 @@ export async function POST(req: NextRequest) {
 
     // Gửi thông báo test
     const { latitude, longitude } = user.location;
-    const locationName = formatLocationName(user.location);
+    const locationName = formatUserLocationName(user.location);
     
     const weatherData = await getWeatherData(latitude, longitude);
     
