@@ -180,6 +180,13 @@ class MongoDB {
   isAvailable(): boolean {
     return !!process.env.MONGODB_URI;
   }
+
+  getDb(): Db {
+    if (!this.db) {
+      throw new Error('Database not connected');
+    }
+    return this.db;
+  }
 }
 
 // Singleton instance

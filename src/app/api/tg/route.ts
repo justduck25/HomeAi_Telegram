@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI, type Content } from "@google/generative-ai";
 import { mongodb, type ContextMessage } from "@/lib/mongodb";
+import { textToSpeech, sendVoiceMessage, sendRecordingAction, isTextSuitableForTTS } from "@/lib/text-to-speech";
+
+// Admin configuration
+const ADMIN_USER_ID = 539971498;
 
 // Sử dụng Node.js runtime để tương thích với SDK
 export const runtime = "nodejs";
+
+// Function kiểm tra quyền admin
+function isAdmin(userId: number | undefined): boolean {
+  return userId === ADMIN_USER_ID;
+}
 
 // Hàm tìm kiếm web với Google Custom Search API
 async function searchWeb(query: string, includeImages: boolean = false): Promise<{ text: string | null; images: string[] }> {
@@ -142,8 +151,8 @@ function isAskingAboutOrigin(text: string): boolean {
 }
 
 // Hàm tạo danh sách lệnh
-function getCommandsList(): string {
-  return `🤖 **Danh sách lệnh của bot:**\n\n` +
+function getCommandsList(userId?: number): string {
+  let commands = `🤖 **Danh sách lệnh của bot:**\n\n` +
     `📝 **Lệnh cơ bản:**\n` +
     `• \`/start\` - Khởi động bot và xem hướng dẫn\n` +
     `• \`/help\` - Hiển thị danh sách lệnh này\n` +
@@ -151,10 +160,21 @@ function getCommandsList(): string {
     `🔍 **Tìm kiếm:**\n` +
     `• \`/search <từ khóa>\` - Tìm kiếm thông tin trên web\n` +
     `• \`/image <từ khóa>\` - Tìm kiếm hình ảnh\n\n` +
+    `🎤 **Voice:**\n` +
+    `• \`/voice <câu hỏi>\` - Trả lời bằng giọng nói\n\n` +
     `🧠 **Bộ nhớ:**\n` +
     `• \`/memory\` - Kiểm tra trạng thái bộ nhớ\n` +
-    `• \`/userinfo\` - Xem thông tin người dùng\n\n` +
-    `💡 **Tính năng tự động:**\n` +
+    `• \`/userinfo\` - Xem thông tin người dùng\n\n`;
+  
+  // Thêm lệnh admin nếu user là admin
+  if (isAdmin(userId)) {
+    commands += `👑 **Lệnh Admin:**\n` +
+      `• \`/admin\` - Xem panel quản trị\n` +
+      `• \`/stats\` - Xem thống kê hệ thống\n` +
+      `• \`/broadcast <tin nhắn>\` - Gửi thông báo tới tất cả users\n\n`;
+  }
+  
+  commands += `💡 **Tính năng tự động:**\n` +
     `• Tự động tìm kiếm khi phát hiện từ khóa (tin tức, giá cả, thời sự...)\n` +
     `• Phân tích và mô tả hình ảnh\n` +
     `• Ghi nhớ cuộc trò chuyện trong 2 tiếng\n\n` +
@@ -162,6 +182,8 @@ function getCommandsList(): string {
     `• Gửi tin nhắn text để hỏi đáp\n` +
     `• Gửi ảnh (có thể kèm câu hỏi) để phân tích\n` +
     `• Sử dụng từ khóa như "tìm kiếm", "giá Bitcoin" để tự động search`;
+  
+  return commands;
 }
 
 // Hàm tạo system prompt với thông tin thời gian thực
@@ -221,6 +243,25 @@ type TelegramPhotoSize = {
   file_size?: number;
 };
 
+type TelegramVoice = {
+  file_id: string;
+  file_unique_id: string;
+  duration: number;
+  mime_type?: string;
+  file_size?: number;
+};
+
+type TelegramAudio = {
+  file_id: string;
+  file_unique_id: string;
+  duration: number;
+  performer?: string;
+  title?: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
+};
+
 type TelegramMessage = {
   message_id: number;
   from?: {
@@ -236,6 +277,8 @@ type TelegramMessage = {
   date: number;
   text?: string;
   photo?: TelegramPhotoSize[];
+  voice?: TelegramVoice;
+  audio?: TelegramAudio;
   caption?: string;
 };
 
@@ -467,15 +510,33 @@ export async function POST(req: NextRequest) {
 
     const chatId = message.chat.id;
     const userId = message.from?.id; // Telegram user ID
-    const text = (message.text || message.caption || "").trim();
+    let text = (message.text || message.caption || "").trim();
     const hasPhoto = message.photo && message.photo.length > 0;
+    const hasVoice = false; // Tạm thời tắt voice input
     
     // Bỏ qua tin nhắn từ bot để tránh vòng lặp
     if (message.from?.is_bot) {
       return NextResponse.json({ ok: true });
     }
 
-    // 3. Xử lý các lệnh đặc biệt
+    // 3. Xử lý command /voice
+    let isVoiceResponse = false;
+    if (/^\/voice\s+/.test(text)) {
+      const voiceQuery = text.replace(/^\/voice\s+/, '').trim();
+      
+      if (!voiceQuery) {
+        await sendTelegramMessage(chatId, "❌ Vui lòng nhập câu hỏi sau lệnh /voice!\n\nVí dụ: `/voice 1+1 bằng mấy?`");
+        return NextResponse.json({ ok: true });
+      }
+      
+      // Đặt text thành câu hỏi và đánh dấu cần trả lời bằng voice
+      text = voiceQuery;
+      isVoiceResponse = true;
+      
+      console.log("Voice command detected:", text);
+    }
+
+    // 4. Xử lý các lệnh đặc biệt
     if (/^\/start/.test(text)) {
       try {
         if (mongodb.isAvailable()) {
@@ -495,14 +556,14 @@ export async function POST(req: NextRequest) {
         "📝 Viết bài, sáng tác, giải thích\n" +
         "🔍 Tìm kiếm thông tin & hình ảnh trên internet\n" +
         (mongodb.isAvailable() ? "🧠 Ghi nhớ cuộc trò chuyện trong 2 tiếng\n" : "") + "\n" +
-        getCommandsList()
+        getCommandsList(userId)
       );
       return NextResponse.json({ ok: true });
     }
     
     // Xử lý lệnh help
     if (/^\/help/.test(text)) {
-      await sendTelegramMessage(chatId, getCommandsList());
+      await sendTelegramMessage(chatId, getCommandsList(userId));
       return NextResponse.json({ ok: true });
     }
     
@@ -511,7 +572,7 @@ export async function POST(req: NextRequest) {
       await sendTelegramMessage(
         chatId,
         "👋 Xin chào! Tôi là trợ lý AI thông minh.\n\n" +
-        getCommandsList()
+        getCommandsList(userId)
       );
       return NextResponse.json({ ok: true });
     }
@@ -609,6 +670,123 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
     
+    // Xử lý lệnh admin
+    if (/^\/admin/.test(text)) {
+      if (!isAdmin(userId)) {
+        await sendTelegramMessage(chatId, "❌ Bạn không có quyền sử dụng lệnh này!");
+        return NextResponse.json({ ok: true });
+      }
+      
+      let adminInfo = `👑 **Admin Panel**\n\n`;
+      adminInfo += `🆔 Admin ID: \`${ADMIN_USER_ID}\`\n`;
+      adminInfo += `💬 Current Chat ID: \`${chatId}\`\n`;
+      adminInfo += `🤖 Bot Status: ✅ Online\n\n`;
+      adminInfo += `📋 **Available Admin Commands:**\n`;
+      adminInfo += `• \`/admin\` - Xem panel admin\n`;
+      adminInfo += `• \`/stats\` - Xem thống kê hệ thống\n`;
+      adminInfo += `• \`/broadcast <message>\` - Gửi tin nhắn tới tất cả users\n`;
+      
+      await sendTelegramMessage(chatId, adminInfo);
+      return NextResponse.json({ ok: true });
+    }
+    
+    // Xử lý lệnh stats (chỉ admin)
+    if (/^\/stats/.test(text)) {
+      if (!isAdmin(userId)) {
+        await sendTelegramMessage(chatId, "❌ Bạn không có quyền sử dụng lệnh này!");
+        return NextResponse.json({ ok: true });
+      }
+      
+      try {
+        if (mongodb.isAvailable()) {
+          // Đảm bảo kết nối database
+          await mongodb.connect();
+          
+          // Lấy thống kê từ database
+          const db = mongodb.getDb();
+          const collection = db.collection('chat_contexts');
+          
+          const totalChats = await collection.countDocuments();
+          const totalMessages = await collection.aggregate([
+            { $project: { messageCount: { $size: "$messages" } } },
+            { $group: { _id: null, total: { $sum: "$messageCount" } } }
+          ]).toArray();
+          
+          const recentChats = await collection.countDocuments({
+            lastUpdated: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+          });
+          
+          let statsInfo = `📊 **Thống kê hệ thống**\n\n`;
+          statsInfo += `💬 Tổng số cuộc trò chuyện: ${totalChats}\n`;
+          statsInfo += `📝 Tổng số tin nhắn: ${totalMessages[0]?.total || 0}\n`;
+          statsInfo += `🔥 Cuộc trò chuyện hoạt động (24h): ${recentChats}\n`;
+          statsInfo += `🤖 MongoDB: ✅ Kết nối\n`;
+          statsInfo += `⏰ Thời gian: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}\n`;
+          
+          await sendTelegramMessage(chatId, statsInfo);
+        } else {
+          await sendTelegramMessage(chatId, "❌ MongoDB không khả dụng để lấy thống kê.");
+        }
+      } catch (error) {
+        console.error('Error getting stats:', error);
+        await sendTelegramMessage(chatId, "❌ Không thể lấy thống kê hệ thống.");
+      }
+      return NextResponse.json({ ok: true });
+    }
+    
+    // Xử lý lệnh broadcast (chỉ admin)
+    if (/^\/broadcast\s+/.test(text)) {
+      if (!isAdmin(userId)) {
+        await sendTelegramMessage(chatId, "❌ Bạn không có quyền sử dụng lệnh này!");
+        return NextResponse.json({ ok: true });
+      }
+      
+      const broadcastMessage = text.replace(/^\/broadcast\s+/, '').trim();
+      
+      if (!broadcastMessage) {
+        await sendTelegramMessage(chatId, "❌ Vui lòng nhập nội dung tin nhắn!\n\nVí dụ: `/broadcast Thông báo bảo trì hệ thống`");
+        return NextResponse.json({ ok: true });
+      }
+      
+      try {
+        if (mongodb.isAvailable()) {
+          // Đảm bảo kết nối database
+          await mongodb.connect();
+          
+          const db = mongodb.getDb();
+          const collection = db.collection('chat_contexts');
+          
+          // Lấy tất cả chatId
+          const chats = await collection.find({}, { projection: { chatId: 1 } }).toArray();
+          
+          let successCount = 0;
+          let failCount = 0;
+          
+          const broadcastText = `📢 **Thông báo từ Admin:**\n\n${broadcastMessage}`;
+          
+          // Gửi tin nhắn tới tất cả chats
+          for (const chat of chats) {
+            try {
+              await sendTelegramMessage(parseInt(chat.chatId), broadcastText);
+              successCount++;
+              // Delay để tránh rate limit
+              await new Promise(resolve => setTimeout(resolve, 100));
+            } catch {
+              failCount++;
+            }
+          }
+          
+          await sendTelegramMessage(chatId, `✅ **Broadcast hoàn thành!**\n\n📤 Gửi thành công: ${successCount}\n❌ Gửi thất bại: ${failCount}\n📊 Tổng: ${chats.length} chats`);
+        } else {
+          await sendTelegramMessage(chatId, "❌ MongoDB không khả dụng để thực hiện broadcast.");
+        }
+      } catch (error) {
+        console.error('Error broadcasting:', error);
+        await sendTelegramMessage(chatId, "❌ Không thể thực hiện broadcast.");
+      }
+      return NextResponse.json({ ok: true });
+    }
+    
     // Xử lý lệnh search
     if (/^\/search\s+/.test(text)) {
       const searchQuery = text.replace(/^\/search\s+/, '').trim();
@@ -659,12 +837,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // Bỏ qua tin nhắn trống (không có text và không có ảnh)
-    if (!text && !hasPhoto) {
+    // Bỏ qua tin nhắn trống (không có text, không có ảnh, và không có voice)
+    if (!text && !hasPhoto && !hasVoice) {
       return NextResponse.json({ ok: true });
     }
 
-    // 4. Kiểm tra xem có cần tìm kiếm web không
+    // 5. Kiểm tra xem có cần tìm kiếm web không
     let searchResults: string | null = null;
     let searchImages: string[] = [];
     const needsWebSearch = shouldSearchWeb(text);
@@ -689,7 +867,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 5. Gửi typing indicator và thông báo cho yêu cầu phức tạp
+    // 6. Gửi typing indicator và thông báo cho yêu cầu phức tạp
     await sendTypingAction(chatId);
     
     // Phát hiện yêu cầu phức tạp (viết bài, sáng tác, phân tích dài, hoặc có ảnh)
@@ -703,7 +881,7 @@ export async function POST(req: NextRequest) {
       await sendTelegramMessage(chatId, message);
     }
 
-    // 6. Lấy ngữ cảnh hội thoại từ MongoDB
+    // 7. Lấy ngữ cảnh hội thoại từ MongoDB
     let context: Content[] = [];
 
     try {
@@ -854,6 +1032,26 @@ export async function POST(req: NextRequest) {
 
     // 9. Gửi phản hồi về Telegram
     await sendTelegramMessage(chatId, reply);
+    
+    // 9.1. Gửi voice response nếu được yêu cầu
+    if (isVoiceResponse && reply && isTextSuitableForTTS(reply)) {
+      try {
+        await sendRecordingAction(chatId);
+        
+        const audioBuffer = await textToSpeech(reply);
+        if (audioBuffer) {
+          const voiceSent = await sendVoiceMessage(chatId, audioBuffer);
+          if (!voiceSent) {
+            await sendTelegramMessage(chatId, "❌ Không thể tạo voice response. Vui lòng thử lại!");
+          }
+        } else {
+          await sendTelegramMessage(chatId, "❌ Không thể chuyển đổi text thành voice. Vui lòng thử lại!");
+        }
+      } catch (error) {
+        console.error("Lỗi tạo voice response:", error);
+        await sendTelegramMessage(chatId, "❌ Có lỗi khi tạo voice response.");
+      }
+    }
     
     // 10. Gửi hình ảnh nếu có từ kết quả tìm kiếm
     if (searchImages && searchImages.length > 0) {
