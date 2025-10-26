@@ -11,7 +11,7 @@ import {
   type User 
 } from "@/lib/database";
 import { textToSpeech, sendVoiceMessage, sendRecordingAction, isTextSuitableForTTS } from "@/lib/text-to-speech";
-import { getWeatherData, formatWeatherMessage, getWeatherForecast, formatForecastMessage } from "@/lib/weather";
+import { getWeatherData, formatWeatherMessage, getWeatherForecast, formatForecastMessage, getWeatherByCoordinates } from "@/lib/weather";
 
 // Sử dụng Node.js runtime để tương thích với SDK
 export const runtime = "nodejs";
@@ -1222,16 +1222,43 @@ export async function POST(req: NextRequest) {
       try {
         if (currentUser?.location) {
           await sendTypingAction(chatId);
-          const locationName = currentUser.location.city || `${currentUser.location.latitude.toFixed(4)}, ${currentUser.location.longitude.toFixed(4)}`;
-          await sendTelegramMessage(chatId, `🌤️ Đang lấy thông tin thời tiết cho vị trí đã lưu: ${locationName}...`);
           
-          const weatherData = await getWeatherData(currentUser.location.latitude, currentUser.location.longitude);
-          
-          if (weatherData) {
-            const weatherMessage = formatWeatherMessage(weatherData, locationName);
-            await sendTelegramMessage(chatId, weatherMessage);
+          // Nếu có tên thành phố đã lưu, sử dụng nó
+          if (currentUser.location.city) {
+            await sendTelegramMessage(chatId, `🌤️ Đang lấy thông tin thời tiết cho: ${currentUser.location.city}...`);
+            
+            const weatherData = await getWeatherData(currentUser.location.city);
+            
+            if (weatherData) {
+              const weatherMessage = formatWeatherMessage(weatherData, currentUser.location.city);
+              await sendTelegramMessage(chatId, weatherMessage);
+            } else {
+              await sendTelegramMessage(chatId, "❌ Không thể lấy thông tin thời tiết cho vị trí đã lưu!");
+            }
           } else {
-            await sendTelegramMessage(chatId, "❌ Không thể lấy thông tin thời tiết cho vị trí đã lưu!");
+            // Nếu chưa có tên thành phố, sử dụng tọa độ và reverse geocode
+            const locationName = `${currentUser.location.latitude!.toFixed(4)}, ${currentUser.location.longitude!.toFixed(4)}`;
+            await sendTelegramMessage(chatId, `🌤️ Đang lấy thông tin thời tiết cho vị trí: ${locationName}...`);
+            
+            const result = await getWeatherByCoordinates(currentUser.location.latitude!, currentUser.location.longitude!);
+            
+            if (result) {
+              const { weatherData, cityName } = result;
+              
+              // Cập nhật location với tên thành phố
+              const updatedLocation = {
+                ...currentUser.location,
+                city: cityName
+              };
+              if (userId) {
+                await updateUser(userId, { location: updatedLocation });
+              }
+              
+              const weatherMessage = formatWeatherMessage(weatherData, cityName);
+              await sendTelegramMessage(chatId, weatherMessage);
+            } else {
+              await sendTelegramMessage(chatId, "❌ Không thể lấy thông tin thời tiết cho vị trí đã lưu!");
+            }
           }
           
           return NextResponse.json({ ok: true });
@@ -1456,16 +1483,26 @@ export async function POST(req: NextRequest) {
         // Lưu vị trí vào user database
         await updateUser(userId, { location });
         
-        // Lấy thời tiết ngay lập tức
-        const weatherData = await getWeatherData(location.latitude, location.longitude);
+        // Lấy thời tiết với reverse geocoding
+        const result = await getWeatherByCoordinates(location.latitude, location.longitude);
         
-        if (weatherData) {
-          const locationName = `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`;
-          const weatherMessage = formatWeatherMessage(weatherData, locationName);
+        if (result) {
+          const { weatherData, cityName } = result;
+          
+          // Cập nhật location với tên thành phố đã reverse geocode
+          const updatedLocation = {
+            ...location,
+            city: cityName
+          };
+          if (userId) {
+            await updateUser(userId, { location: updatedLocation });
+          }
+          
+          const weatherMessage = formatWeatherMessage(weatherData, cityName);
           
           await sendTelegramMessage(
             chatId, 
-            `${weatherMessage}\n\n💾 <i>Vị trí đã được lưu để sử dụng cho lần sau!</i>`
+            `${weatherMessage}\n\n💾 <i>Vị trí "${cityName}" đã được lưu để sử dụng cho lần sau!</i>`
           );
         } else {
           await sendTelegramMessage(chatId, "❌ Không thể lấy thông tin thời tiết cho vị trí này!");
