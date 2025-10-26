@@ -6,72 +6,145 @@ import { mongodb, type ContextMessage } from "@/lib/mongodb";
 export const runtime = "nodejs";
 
 // Hàm tìm kiếm web với Google Custom Search API
-async function searchWeb(query: string): Promise<string | null> {
+async function searchWeb(query: string, includeImages: boolean = false): Promise<{ text: string | null; images: string[] }> {
   const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
   const searchEngineId = process.env.GOOGLE_SEARCH_ENGINE_ID;
   
   if (!apiKey || !searchEngineId) {
     console.log("Google Search API chưa được cấu hình");
-    return null;
+    return { text: null, images: [] };
   }
 
   try {
+    // Tìm kiếm text
     const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}&num=5&lr=lang_vi`;
     
     const response = await fetch(searchUrl);
     const data = await response.json();
     
-    if (!response.ok || !data.items || data.items.length === 0) {
-      console.log("Không tìm thấy kết quả search:", data.error?.message || "No results");
-      return null;
+    let searchResults = null;
+    let images: string[] = [];
+    
+    if (response.ok && data.items && data.items.length > 0) {
+      // Format kết quả search
+      searchResults = `🔍 **Kết quả tìm kiếm cho "${query}":**\n\n`;
+      
+      data.items.slice(0, 3).forEach((item: { title: string; snippet: string; link: string }, index: number) => {
+        searchResults! += `**${index + 1}. ${item.title}**\n`;
+        searchResults! += `${item.snippet}\n`;
+        searchResults! += `🔗 ${item.link}\n\n`;
+      });
     }
-
-    // Format kết quả search
-    let searchResults = `🔍 **Kết quả tìm kiếm cho "${query}":**\n\n`;
     
-    data.items.slice(0, 3).forEach((item: { title: string; snippet: string; link: string }, index: number) => {
-      searchResults += `**${index + 1}. ${item.title}**\n`;
-      searchResults += `${item.snippet}\n`;
-      searchResults += `🔗 ${item.link}\n\n`;
-    });
+    // Tìm kiếm hình ảnh nếu được yêu cầu
+    if (includeImages) {
+      try {
+        const imageSearchUrl = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}&searchType=image&num=3&lr=lang_vi`;
+        const imageResponse = await fetch(imageSearchUrl);
+        const imageData = await imageResponse.json();
+        
+        if (imageResponse.ok && imageData.items && imageData.items.length > 0) {
+          images = imageData.items.map((item: { link: string }) => item.link).slice(0, 3);
+        }
+      } catch (error) {
+        console.error("Lỗi tìm kiếm hình ảnh:", error);
+      }
+    }
     
-    return searchResults;
+    return { text: searchResults, images };
   } catch (error) {
     console.error("Lỗi tìm kiếm web:", error);
-    return null;
+    return { text: null, images: [] };
   }
 }
 
 // Hàm kiểm tra xem có cần tìm kiếm web không
 function shouldSearchWeb(text: string): boolean {
   const searchKeywords = [
+    // Từ khóa tìm kiếm trực tiếp
+    'tìm kiếm', 'search', 'tìm', 'kiếm', 'tra cứu', 'research', 'nghiên cứu',
+    
     // Tin tức & thời sự
     'tin tức', 'tin mới', 'thời sự', 'báo chí', 'sự kiện',
     'mới nhất', 'cập nhật', 'hiện tại', 'hôm nay', 'tuần này',
     
     // Giá cả & thị trường
     'giá', 'bao nhiêu tiền', 'chi phí', 'thị trường', 'cổ phiếu',
-    'bitcoin', 'vàng', 'USD', 'tỷ giá',
+    'bitcoin', 'vàng', 'USD', 'tỷ giá', 'giá cả',
     
     // Thông tin sản phẩm
     'mua', 'bán', 'sản phẩm', 'review', 'đánh giá',
-    'so sánh', 'tốt nhất', 'khuyến mãi',
+    'so sánh', 'tốt nhất', 'khuyến mãi', 'ưu đãi',
     
     // Thông tin học tập
     'học', 'trường', 'đại học', 'khóa học', 'thi cử',
-    'tuyển sinh', 'học bổng',
+    'tuyển sinh', 'học bổng', 'giáo dục',
     
     // Thời tiết & địa điểm
     'thời tiết', 'nhiệt độ', 'mưa', 'nắng', 'bão',
-    'đường đi', 'địa chỉ', 'quán ăn', 'nhà hàng',
+    'đường đi', 'địa chỉ', 'quán ăn', 'nhà hàng', 'du lịch',
     
     // Sự kiện & giải trí
     'phim', 'nhạc', 'ca sĩ', 'diễn viên', 'concert',
-    'lễ hội', 'sự kiện', 'triển lãm'
+    'lễ hội', 'sự kiện', 'triển lãm', 'show',
+    
+    // Thể thao
+    'bóng đá', 'world cup', 'euro', 'sea games', 'olympic',
+    'thể thao', 'tỷ số', 'kết quả'
   ];
   
   const lowerText = text.toLowerCase();
   return searchKeywords.some(keyword => lowerText.includes(keyword));
+}
+
+// Hàm kiểm tra xem có cần tìm kiếm hình ảnh không
+function shouldSearchImages(text: string): boolean {
+  const imageKeywords = [
+    'hình ảnh', 'ảnh', 'photo', 'picture', 'image',
+    'xem ảnh', 'cho xem', 'hiển thị', 'show me',
+    'như thế nào', 'trông ra sao', 'hình dáng'
+  ];
+  
+  const lowerText = text.toLowerCase();
+  return imageKeywords.some(keyword => lowerText.includes(keyword));
+}
+
+// Hàm kiểm tra tin nhắn chào hỏi
+function isGreeting(text: string): boolean {
+  const greetings = [
+    'xin chào', 'chào', 'hello', 'hi', 'hey',
+    'chào bạn', 'chào bot', 'bạn khỏe không',
+    'có ai không', 'alo', 'hế lô'
+  ];
+  
+  const lowerText = text.toLowerCase().trim();
+  return greetings.some(greeting => 
+    lowerText === greeting || 
+    lowerText.startsWith(greeting + ' ') ||
+    lowerText.endsWith(' ' + greeting)
+  );
+}
+
+// Hàm tạo danh sách lệnh
+function getCommandsList(): string {
+  return `🤖 **Danh sách lệnh của bot:**\n\n` +
+    `📝 **Lệnh cơ bản:**\n` +
+    `• \`/start\` - Khởi động bot và xem hướng dẫn\n` +
+    `• \`/help\` - Hiển thị danh sách lệnh này\n` +
+    `• \`/reset\` - Xóa bộ nhớ và bắt đầu cuộc trò chuyện mới\n\n` +
+    `🔍 **Tìm kiếm:**\n` +
+    `• \`/search <từ khóa>\` - Tìm kiếm thông tin trên web\n` +
+    `• \`/image <từ khóa>\` - Tìm kiếm hình ảnh\n\n` +
+    `🧠 **Bộ nhớ:**\n` +
+    `• \`/memory\` - Kiểm tra trạng thái bộ nhớ\n\n` +
+    `💡 **Tính năng tự động:**\n` +
+    `• Tự động tìm kiếm khi phát hiện từ khóa (tin tức, giá cả, thời sự...)\n` +
+    `• Phân tích và mô tả hình ảnh\n` +
+    `• Ghi nhớ cuộc trò chuyện trong 2 tiếng\n\n` +
+    `📱 **Cách sử dụng:**\n` +
+    `• Gửi tin nhắn text để hỏi đáp\n` +
+    `• Gửi ảnh (có thể kèm câu hỏi) để phân tích\n` +
+    `• Sử dụng từ khóa như "tìm kiếm", "giá Bitcoin" để tự động search`;
 }
 
 // Hàm tạo system prompt với thông tin thời gian thực
@@ -395,17 +468,25 @@ export async function POST(req: NextRequest) {
         "💬 Trả lời câu hỏi bằng tiếng Việt\n" +
         "🖼️ Phân tích và mô tả ảnh\n" +
         "📝 Viết bài, sáng tác, giải thích\n" +
-        "🔍 Tìm kiếm thông tin thời sự trên internet\n" +
+        "🔍 Tìm kiếm thông tin & hình ảnh trên internet\n" +
         (mongodb.isAvailable() ? "🧠 Ghi nhớ cuộc trò chuyện trong 2 tiếng\n" : "") + "\n" +
-        "**Cách sử dụng:**\n" +
-        "• Gửi tin nhắn text để hỏi đáp\n" +
-        "• Gửi ảnh (có thể kèm câu hỏi) để phân tích\n" +
-        "• Hỏi về tin tức, giá cả, thời sự - tôi sẽ tự động tìm kiếm\n" +
-        "• Tôi sẽ nhớ những gì bạn hỏi trong 2 tiếng qua\n\n" +
-        "**Lệnh hữu ích:**\n" +
-        "📝 `/reset` - Xóa bộ nhớ và bắt đầu mới\n" +
-        "🧠 `/memory` - Kiểm tra trạng thái bộ nhớ\n" +
-        "🔍 `/search <từ khóa>` - Tìm kiếm thông tin trên web"
+        getCommandsList()
+      );
+      return NextResponse.json({ ok: true });
+    }
+    
+    // Xử lý lệnh help
+    if (/^\/help/.test(text)) {
+      await sendTelegramMessage(chatId, getCommandsList());
+      return NextResponse.json({ ok: true });
+    }
+    
+    // Xử lý tin nhắn chào hỏi
+    if (isGreeting(text)) {
+      await sendTelegramMessage(
+        chatId,
+        "👋 Xin chào! Tôi là trợ lý AI thông minh.\n\n" +
+        getCommandsList()
       );
       return NextResponse.json({ ok: true });
     }
@@ -462,12 +543,39 @@ export async function POST(req: NextRequest) {
       await sendTypingAction(chatId);
       await sendTelegramMessage(chatId, `🔍 Đang tìm kiếm "${searchQuery}"...`);
       
-      const searchResults = await searchWeb(searchQuery);
+      const { text: searchResults } = await searchWeb(searchQuery);
       
       if (searchResults) {
         await sendTelegramMessage(chatId, searchResults);
       } else {
         await sendTelegramMessage(chatId, "❌ Không tìm thấy kết quả hoặc dịch vụ tìm kiếm chưa được cấu hình.");
+      }
+      
+      return NextResponse.json({ ok: true });
+    }
+    
+    // Xử lý lệnh tìm kiếm hình ảnh
+    if (/^\/image\s+/.test(text)) {
+      const searchQuery = text.replace(/^\/image\s+/, '').trim();
+      
+      if (!searchQuery) {
+        await sendTelegramMessage(chatId, "❌ Vui lòng nhập từ khóa tìm kiếm hình ảnh!\n\nVí dụ: `/image mèo dễ thương`");
+        return NextResponse.json({ ok: true });
+      }
+      
+      await sendTypingAction(chatId);
+      await sendTelegramMessage(chatId, `🖼️ Đang tìm kiếm hình ảnh "${searchQuery}"...`);
+      
+      const { images } = await searchWeb(searchQuery, true);
+      
+      if (images && images.length > 0) {
+        let imageMessage = `🖼️ **Hình ảnh tìm kiếm cho "${searchQuery}":**\n\n`;
+        images.forEach((imageUrl, index) => {
+          imageMessage += `${index + 1}. ${imageUrl}\n`;
+        });
+        await sendTelegramMessage(chatId, imageMessage);
+      } else {
+        await sendTelegramMessage(chatId, "❌ Không tìm thấy hình ảnh hoặc dịch vụ tìm kiếm chưa được cấu hình.");
       }
       
       return NextResponse.json({ ok: true });
@@ -480,12 +588,27 @@ export async function POST(req: NextRequest) {
 
     // 4. Kiểm tra xem có cần tìm kiếm web không
     let searchResults: string | null = null;
+    let searchImages: string[] = [];
     const needsWebSearch = shouldSearchWeb(text);
+    const needsImageSearch = shouldSearchImages(text);
     
-    if (needsWebSearch) {
+    if (needsWebSearch || needsImageSearch) {
       await sendTypingAction(chatId);
-      await sendTelegramMessage(chatId, "🔍 Đang tìm kiếm thông tin mới nhất...");
-      searchResults = await searchWeb(text);
+      
+      if (needsWebSearch && needsImageSearch) {
+        await sendTelegramMessage(chatId, "🔍 Đang tìm kiếm thông tin và hình ảnh...");
+        const result = await searchWeb(text, true);
+        searchResults = result.text;
+        searchImages = result.images;
+      } else if (needsWebSearch) {
+        await sendTelegramMessage(chatId, "🔍 Đang tìm kiếm thông tin mới nhất...");
+        const result = await searchWeb(text);
+        searchResults = result.text;
+      } else if (needsImageSearch) {
+        await sendTelegramMessage(chatId, "🖼️ Đang tìm kiếm hình ảnh...");
+        const result = await searchWeb(text, true);
+        searchImages = result.images;
+      }
     }
 
     // 5. Gửi typing indicator và thông báo cho yêu cầu phức tạp
@@ -564,8 +687,19 @@ export async function POST(req: NextRequest) {
     }
 
     // Tạo history cho Gemini (bao gồm system prompt với thời gian thực và kết quả tìm kiếm)
+    let systemPromptText = createSystemPrompt(searchResults || undefined);
+    
+    // Thêm thông tin hình ảnh nếu có
+    if (searchImages && searchImages.length > 0) {
+      systemPromptText += `\n\nHÌNH ẢNH TÌM KIẾM:\n`;
+      searchImages.forEach((imageUrl, index) => {
+        systemPromptText += `${index + 1}. ${imageUrl}\n`;
+      });
+      systemPromptText += `\nHãy đề cập đến các hình ảnh này trong câu trả lời nếu phù hợp.`;
+    }
+    
     const history: Content[] = [
-      { role: "user", parts: [{ text: createSystemPrompt(searchResults || undefined) }] },
+      { role: "user", parts: [{ text: systemPromptText }] },
       ...context,
       { role: "user", parts: currentMessageParts },
     ];
@@ -642,6 +776,33 @@ export async function POST(req: NextRequest) {
 
     // 9. Gửi phản hồi về Telegram
     await sendTelegramMessage(chatId, reply);
+    
+    // 10. Gửi hình ảnh nếu có từ kết quả tìm kiếm
+    if (searchImages && searchImages.length > 0) {
+      for (const imageUrl of searchImages.slice(0, 3)) { // Giới hạn 3 ảnh
+        try {
+          const botToken = process.env.TELEGRAM_BOT_TOKEN;
+          if (botToken) {
+            await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                chat_id: chatId,
+                photo: imageUrl,
+                caption: `🖼️ Kết quả tìm kiếm hình ảnh`
+              }),
+            });
+            
+            // Delay nhỏ giữa các ảnh
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+        } catch (error) {
+          console.error("Lỗi gửi ảnh:", error);
+        }
+      }
+    }
 
     return NextResponse.json({ ok: true });
 
