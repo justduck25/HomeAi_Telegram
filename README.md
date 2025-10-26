@@ -5,6 +5,8 @@ Bot Telegram thông minh được hỗ trợ bởi Google Gemini AI, có khả n
 ## ✨ Tính năng
 
 - 💬 **Trò chuyện thông minh**: Giao tiếp tự nhiên với AI Gemini
+- 🖼️ **Phân tích ảnh**: Mô tả và trả lời câu hỏi về hình ảnh
+- 🔍 **Tìm kiếm web**: Tự động search thông tin thời sự trên internet
 - 🧠 **Ghi nhớ ngữ cảnh**: Lưu trữ cuộc trò chuyện trong 2 tiếng với MongoDB
 - ⚡ **Phản hồi nhanh**: Xử lý tin nhắn trong thời gian thực
 - 🔒 **Bảo mật**: Xác thực webhook với secret token
@@ -29,6 +31,10 @@ TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
 TELEGRAM_SECRET=your_custom_secret_key
 GOOGLE_API_KEY=your_gemini_api_key
 MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/telegram-bot?retryWrites=true&w=majority
+
+# Optional: For web search feature
+GOOGLE_SEARCH_API_KEY=your_google_search_api_key
+GOOGLE_SEARCH_ENGINE_ID=your_search_engine_id
 ```
 
 ### 3. Lấy các API key cần thiết
@@ -43,11 +49,17 @@ MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/telegram-bot?ret
 2. Tạo API Key mới
 3. Copy key vào `GOOGLE_API_KEY`
 
-#### MongoDB Database
+#### MongoDB Database (Tùy chọn)
 1. Truy cập [MongoDB Atlas](https://www.mongodb.com/atlas)
 2. Tạo cluster miễn phí
 3. Tạo database user và lấy connection string
 4. Copy connection string vào `MONGODB_URI`
+
+#### Google Search API (Tùy chọn - cho tính năng tìm kiếm web)
+1. Xem hướng dẫn chi tiết trong [GOOGLE_SEARCH_SETUP.md](./GOOGLE_SEARCH_SETUP.md)
+2. Tạo Google Custom Search Engine
+3. Lấy API Key và Search Engine ID
+4. Cấu hình vào biến môi trường
 
 ### 4. Chạy development server
 
@@ -81,6 +93,10 @@ TELEGRAM_BOT_TOKEN = <your_bot_token>
 TELEGRAM_SECRET = <your_secret>
 GOOGLE_API_KEY = <your_gemini_key>
 MONGODB_URI = <your_mongodb_connection_string>
+
+# Optional: For web search feature
+GOOGLE_SEARCH_API_KEY = <your_google_search_api_key>
+GOOGLE_SEARCH_ENGINE_ID = <your_search_engine_id>
 ```
 
 ### 4. Deploy
@@ -136,9 +152,21 @@ tg-gemini-bot/
 
 ## 🤖 Cách sử dụng bot
 
-1. **Bắt đầu**: Gửi `/start` cho bot
-2. **Trò chuyện**: Nhắn tin bình thường, bot sẽ trả lời
-3. **Reset**: Gửi `/reset` để xóa lịch sử hội thoại
+### Lệnh cơ bản
+- `/start` - Bắt đầu sử dụng bot
+- `/reset` - Xóa lịch sử hội thoại
+- `/memory` - Kiểm tra trạng thái bộ nhớ
+- `/search <từ khóa>` - Tìm kiếm thông tin trên web
+
+### Tính năng tự động
+- **Trò chuyện**: Nhắn tin bình thường, bot sẽ trả lời
+- **Phân tích ảnh**: Gửi ảnh (có thể kèm câu hỏi)
+- **Tìm kiếm tự động**: Bot tự động search khi bạn hỏi về:
+  - Tin tức, thời sự hiện tại
+  - Giá cả, thị trường
+  - Thông tin sản phẩm
+  - Thời tiết, địa điểm
+  - Sự kiện, giải trí
 
 ## 🔧 Tùy chỉnh
 

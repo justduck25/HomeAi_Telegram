@@ -5,8 +5,77 @@ import { mongodb, type ContextMessage } from "@/lib/mongodb";
 // Sử dụng Node.js runtime để tương thích với SDK
 export const runtime = "nodejs";
 
+// Hàm tìm kiếm web với Google Custom Search API
+async function searchWeb(query: string): Promise<string | null> {
+  const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
+  const searchEngineId = process.env.GOOGLE_SEARCH_ENGINE_ID;
+  
+  if (!apiKey || !searchEngineId) {
+    console.log("Google Search API chưa được cấu hình");
+    return null;
+  }
+
+  try {
+    const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}&num=5&lr=lang_vi`;
+    
+    const response = await fetch(searchUrl);
+    const data = await response.json();
+    
+    if (!response.ok || !data.items || data.items.length === 0) {
+      console.log("Không tìm thấy kết quả search:", data.error?.message || "No results");
+      return null;
+    }
+
+    // Format kết quả search
+    let searchResults = `🔍 **Kết quả tìm kiếm cho "${query}":**\n\n`;
+    
+    data.items.slice(0, 3).forEach((item: { title: string; snippet: string; link: string }, index: number) => {
+      searchResults += `**${index + 1}. ${item.title}**\n`;
+      searchResults += `${item.snippet}\n`;
+      searchResults += `🔗 ${item.link}\n\n`;
+    });
+    
+    return searchResults;
+  } catch (error) {
+    console.error("Lỗi tìm kiếm web:", error);
+    return null;
+  }
+}
+
+// Hàm kiểm tra xem có cần tìm kiếm web không
+function shouldSearchWeb(text: string): boolean {
+  const searchKeywords = [
+    // Tin tức & thời sự
+    'tin tức', 'tin mới', 'thời sự', 'báo chí', 'sự kiện',
+    'mới nhất', 'cập nhật', 'hiện tại', 'hôm nay', 'tuần này',
+    
+    // Giá cả & thị trường
+    'giá', 'bao nhiêu tiền', 'chi phí', 'thị trường', 'cổ phiếu',
+    'bitcoin', 'vàng', 'USD', 'tỷ giá',
+    
+    // Thông tin sản phẩm
+    'mua', 'bán', 'sản phẩm', 'review', 'đánh giá',
+    'so sánh', 'tốt nhất', 'khuyến mãi',
+    
+    // Thông tin học tập
+    'học', 'trường', 'đại học', 'khóa học', 'thi cử',
+    'tuyển sinh', 'học bổng',
+    
+    // Thời tiết & địa điểm
+    'thời tiết', 'nhiệt độ', 'mưa', 'nắng', 'bão',
+    'đường đi', 'địa chỉ', 'quán ăn', 'nhà hàng',
+    
+    // Sự kiện & giải trí
+    'phim', 'nhạc', 'ca sĩ', 'diễn viên', 'concert',
+    'lễ hội', 'sự kiện', 'triển lãm'
+  ];
+  
+  const lowerText = text.toLowerCase();
+  return searchKeywords.some(keyword => lowerText.includes(keyword));
+}
+
 // Hàm tạo system prompt với thông tin thời gian thực
-function createSystemPrompt(): string {
+function createSystemPrompt(searchResults?: string): string {
   const now = new Date();
   
   // Múi giờ Việt Nam (UTC+7)
@@ -26,18 +95,25 @@ function createSystemPrompt(): string {
     timeZone: 'UTC'
   });
 
-  return `Bạn là trợ lý AI thông minh nói tiếng Việt có khả năng phân tích ảnh. 
+  let prompt = `Bạn là trợ lý AI thông minh nói tiếng Việt có khả năng phân tích ảnh và tìm kiếm thông tin trên internet. 
 
 THÔNG TIN THỜI GIAN HIỆN TẠI:
 - Ngày hiện tại: ${currentDate}
 - Giờ hiện tại: ${currentTime} (múi giờ Việt Nam, UTC+7)
-- Năm hiện tại: ${vietnamTime.getFullYear()}
+- Năm hiện tại: ${vietnamTime.getFullYear()}`;
 
-Hãy trả lời một cách ngắn gọn, chính xác và hữu ích. Khi được gửi ảnh, hãy mô tả chi tiết những gì bạn thấy và trả lời câu hỏi liên quan. 
+  if (searchResults) {
+    prompt += `\n\nTHÔNG TIN TÌM KIẾM MỚI NHẤT:\n${searchResults}`;
+    prompt += `\nHãy sử dụng thông tin tìm kiếm ở trên để trả lời câu hỏi một cách chính xác và cập nhật nhất. Luôn trích dẫn nguồn khi sử dụng thông tin từ kết quả tìm kiếm.`;
+  }
 
-Khi người dùng hỏi về thời gian, ngày tháng, sự kiện hiện tại, hãy sử dụng thông tin thời gian thực ở trên. Nếu họ hỏi về sự kiện sau năm 2023, hãy thành thật nói rằng bạn không có thông tin cập nhật về điều đó.
+  prompt += `\n\nHãy trả lời một cách ngắn gọn, chính xác và hữu ích. Khi được gửi ảnh, hãy mô tả chi tiết những gì bạn thấy và trả lời câu hỏi liên quan. 
+
+Khi người dùng hỏi về thời gian, ngày tháng, sự kiện hiện tại, hãy sử dụng thông tin thời gian thực ở trên. Nếu họ hỏi về sự kiện sau năm 2023 mà không có thông tin tìm kiếm, hãy thành thật nói rằng bạn cần tìm kiếm thông tin cập nhật.
 
 Ưu tiên câu trả lời rõ ràng và có ví dụ cụ thể khi cần thiết. Luôn thân thiện và lịch sự.`;
+
+  return prompt;
 }
 
 // Định nghĩa kiểu dữ liệu cho Telegram message
@@ -319,14 +395,17 @@ export async function POST(req: NextRequest) {
         "💬 Trả lời câu hỏi bằng tiếng Việt\n" +
         "🖼️ Phân tích và mô tả ảnh\n" +
         "📝 Viết bài, sáng tác, giải thích\n" +
+        "🔍 Tìm kiếm thông tin thời sự trên internet\n" +
         (mongodb.isAvailable() ? "🧠 Ghi nhớ cuộc trò chuyện trong 2 tiếng\n" : "") + "\n" +
         "**Cách sử dụng:**\n" +
         "• Gửi tin nhắn text để hỏi đáp\n" +
         "• Gửi ảnh (có thể kèm câu hỏi) để phân tích\n" +
+        "• Hỏi về tin tức, giá cả, thời sự - tôi sẽ tự động tìm kiếm\n" +
         "• Tôi sẽ nhớ những gì bạn hỏi trong 2 tiếng qua\n\n" +
         "**Lệnh hữu ích:**\n" +
         "📝 `/reset` - Xóa bộ nhớ và bắt đầu mới\n" +
-        "🧠 `/memory` - Kiểm tra trạng thái bộ nhớ"
+        "🧠 `/memory` - Kiểm tra trạng thái bộ nhớ\n" +
+        "🔍 `/search <từ khóa>` - Tìm kiếm thông tin trên web"
       );
       return NextResponse.json({ ok: true });
     }
@@ -370,25 +449,60 @@ export async function POST(req: NextRequest) {
       }
       return NextResponse.json({ ok: true });
     }
+    
+    // Xử lý lệnh search
+    if (/^\/search\s+/.test(text)) {
+      const searchQuery = text.replace(/^\/search\s+/, '').trim();
+      
+      if (!searchQuery) {
+        await sendTelegramMessage(chatId, "❌ Vui lòng nhập từ khóa tìm kiếm!\n\nVí dụ: `/search tin tức Việt Nam hôm nay`");
+        return NextResponse.json({ ok: true });
+      }
+      
+      await sendTypingAction(chatId);
+      await sendTelegramMessage(chatId, `🔍 Đang tìm kiếm "${searchQuery}"...`);
+      
+      const searchResults = await searchWeb(searchQuery);
+      
+      if (searchResults) {
+        await sendTelegramMessage(chatId, searchResults);
+      } else {
+        await sendTelegramMessage(chatId, "❌ Không tìm thấy kết quả hoặc dịch vụ tìm kiếm chưa được cấu hình.");
+      }
+      
+      return NextResponse.json({ ok: true });
+    }
 
     // Bỏ qua tin nhắn trống (không có text và không có ảnh)
     if (!text && !hasPhoto) {
       return NextResponse.json({ ok: true });
     }
 
-    // 4. Gửi typing indicator và thông báo cho yêu cầu phức tạp
+    // 4. Kiểm tra xem có cần tìm kiếm web không
+    let searchResults: string | null = null;
+    const needsWebSearch = shouldSearchWeb(text);
+    
+    if (needsWebSearch) {
+      await sendTypingAction(chatId);
+      await sendTelegramMessage(chatId, "🔍 Đang tìm kiếm thông tin mới nhất...");
+      searchResults = await searchWeb(text);
+    }
+
+    // 5. Gửi typing indicator và thông báo cho yêu cầu phức tạp
     await sendTypingAction(chatId);
     
     // Phát hiện yêu cầu phức tạp (viết bài, sáng tác, phân tích dài, hoặc có ảnh)
-    const isComplexRequest = hasPhoto || /viết|sáng tác|phân tích|giải thích chi tiết|mô tả|kể|tạo|làm bài/.test(text.toLowerCase());
-    if (isComplexRequest && (text.length > 30 || hasPhoto)) {
+    const isComplexRequest = hasPhoto || needsWebSearch || /viết|sáng tác|phân tích|giải thích chi tiết|mô tả|kể|tạo|làm bài/.test(text.toLowerCase());
+    if (isComplexRequest && (text.length > 30 || hasPhoto || needsWebSearch)) {
       const message = hasPhoto ? 
         "🖼️ Tôi đang phân tích ảnh của bạn, vui lòng đợi 30-60 giây..." :
+        needsWebSearch ?
+        "🔍 Đang xử lý thông tin tìm kiếm và chuẩn bị câu trả lời..." :
         "🤔 Đây là yêu cầu phức tạp, tôi cần thời gian suy nghĩ. Vui lòng đợi 30-60 giây...";
       await sendTelegramMessage(chatId, message);
     }
 
-    // 5. Lấy ngữ cảnh hội thoại từ MongoDB
+    // 6. Lấy ngữ cảnh hội thoại từ MongoDB
     let context: Content[] = [];
 
     try {
@@ -406,7 +520,7 @@ export async function POST(req: NextRequest) {
       console.log("MongoDB không khả dụng, bỏ qua ngữ cảnh");
     }
 
-    // 6. Chuẩn bị và gọi Gemini AI
+    // 7. Chuẩn bị và gọi Gemini AI
     const googleApiKey = process.env.GOOGLE_API_KEY;
     if (!googleApiKey) {
       await sendTelegramMessage(chatId, "❌ Lỗi cấu hình: Không tìm thấy Google API Key");
@@ -449,9 +563,9 @@ export async function POST(req: NextRequest) {
       currentMessageParts.push(imagePart);
     }
 
-    // Tạo history cho Gemini (bao gồm system prompt với thời gian thực)
+    // Tạo history cho Gemini (bao gồm system prompt với thời gian thực và kết quả tìm kiếm)
     const history: Content[] = [
-      { role: "user", parts: [{ text: createSystemPrompt() }] },
+      { role: "user", parts: [{ text: createSystemPrompt(searchResults || undefined) }] },
       ...context,
       { role: "user", parts: currentMessageParts },
     ];
@@ -489,7 +603,7 @@ export async function POST(req: NextRequest) {
       clearTimeout(timeoutId);
     }
 
-    // 7. Lưu ngữ cảnh mới vào MongoDB với timestamp (không lưu ảnh để tiết kiệm storage)
+    // 8. Lưu ngữ cảnh mới vào MongoDB với timestamp (không lưu ảnh để tiết kiệm storage)
     const now = Date.now();
     
     // Lấy context hiện tại với timestamp
@@ -526,7 +640,7 @@ export async function POST(req: NextRequest) {
       console.log("Không thể lưu ngữ cảnh vào MongoDB");
     }
 
-    // 8. Gửi phản hồi về Telegram
+    // 9. Gửi phản hồi về Telegram
     await sendTelegramMessage(chatId, reply);
 
     return NextResponse.json({ ok: true });
