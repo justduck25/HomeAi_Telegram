@@ -229,12 +229,74 @@ function normalizeVietnameseCity(cityName: string): string {
   return vietnamCityMapping[normalized] || cityName;
 }
 
-// Hàm reverse geocoding - đổi tọa độ thành tên địa điểm
+// Interface cho Nominatim OSM Response
+interface NominatimResponse {
+  display_name: string;
+  address: {
+    city?: string;
+    town?: string;
+    village?: string;
+    municipality?: string;
+    county?: string;
+    state?: string;
+    country?: string;
+    country_code?: string;
+  };
+}
+
+// Hàm reverse geocoding sử dụng Nominatim OSM (miễn phí)
+export async function reverseGeocodeNominatim(lat: number, lon: number): Promise<string | null> {
+  try {
+    // Sử dụng Nominatim OSM - hoàn toàn miễn phí, không cần API key
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=10&addressdetails=1&accept-language=vi,en`,
+      {
+        headers: {
+          'User-Agent': 'TelegramWeatherBot/1.0 (contact@example.com)' // Bắt buộc phải có User-Agent
+        }
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Nominatim API error: ${response.status}`);
+    }
+
+    const data: NominatimResponse = await response.json();
+    
+    if (!data || !data.address) {
+      return null;
+    }
+
+    // Ưu tiên lấy tên thành phố/thị trấn
+    const locationName = data.address.city || 
+                        data.address.town || 
+                        data.address.village || 
+                        data.address.municipality ||
+                        data.address.county ||
+                        data.address.state;
+
+    return locationName || null;
+
+  } catch (error) {
+    console.error('Lỗi Nominatim reverse geocoding:', error);
+    return null;
+  }
+}
+
+// Hàm reverse geocoding với fallback methods
 export async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
+  // Method 1: Thử Nominatim OSM trước (miễn phí, tốt nhất)
+  const nominatimResult = await reverseGeocodeNominatim(lat, lon);
+  if (nominatimResult) {
+    return nominatimResult;
+  }
+
+  // Method 2: Fallback về OpenWeatherMap nếu có API key
   const apiKey = process.env.OPENWEATHER_API_KEY;
   
   if (!apiKey) {
-    throw new Error('OpenWeatherMap API key không được cấu hình');
+    console.warn('Không có OpenWeatherMap API key để fallback reverse geocoding');
+    return null;
   }
 
   try {
@@ -250,7 +312,7 @@ export async function reverseGeocode(lat: number, lon: number): Promise<string |
     // Trả về tên địa điểm từ OpenWeatherMap
     return data.name || null;
   } catch (error) {
-    console.error('Lỗi khi reverse geocoding:', error);
+    console.error('Lỗi khi reverse geocoding với OpenWeatherMap:', error);
     return null;
   }
 }
@@ -273,6 +335,28 @@ function getAirQualityDescription(humidity: number, visibility: number): string 
     return '🟡 Trung bình';
   } else {
     return '🔴 Kém';
+  }
+}
+
+// Hàm lấy thời tiết theo tọa độ với reverse geocoding
+export async function getWeatherByCoordinates(lat: number, lon: number): Promise<WeatherData | null> {
+  try {
+    // Lấy dữ liệu thời tiết
+    const weather = await getWeatherData(lat, lon);
+    if (!weather) {
+      return null;
+    }
+
+    // Thử reverse geocoding để lấy tên địa điểm chính xác hơn
+    const locationName = await reverseGeocode(lat, lon);
+    if (locationName) {
+      weather.name = locationName;
+    }
+
+    return weather;
+  } catch (error) {
+    console.error('Lỗi khi lấy thời tiết theo tọa độ:', error);
+    return null;
   }
 }
 
