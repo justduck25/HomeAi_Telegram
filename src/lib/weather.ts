@@ -153,6 +153,108 @@ const weatherDescriptions: { [key: string]: string } = {
   'tornado': '🌪️ Lốc xoáy'
 };
 
+// Bản đồ tên thành phố Việt Nam để tối ưu tìm kiếm
+const vietnamCityMapping: { [key: string]: string } = {
+  // Thành phố lớn
+  'tp.hcm': 'Ho Chi Minh City',
+  'tphcm': 'Ho Chi Minh City',
+  'sài gòn': 'Ho Chi Minh City',
+  'saigon': 'Ho Chi Minh City',
+  'hồ chí minh': 'Ho Chi Minh City',
+  'ho chi minh': 'Ho Chi Minh City',
+  
+  'hà nội': 'Hanoi',
+  'ha noi': 'Hanoi',
+  'hanoi': 'Hanoi',
+  
+  'đà nẵng': 'Da Nang',
+  'da nang': 'Da Nang',
+  'danang': 'Da Nang',
+  
+  // Các tỉnh thành khác
+  'nghệ an': 'Nghe An',
+  'nghe an': 'Nghe An',
+  'thanh hóa': 'Thanh Hoa',
+  'thanh hoa': 'Thanh Hoa',
+  'hải phòng': 'Haiphong',
+  'hai phong': 'Haiphong',
+  'cần thơ': 'Can Tho',
+  'can tho': 'Can Tho',
+  'vũng tàu': 'Vung Tau',
+  'vung tau': 'Vung Tau',
+  'nha trang': 'Nha Trang',
+  'đà lạt': 'Da Lat',
+  'da lat': 'Da Lat',
+  'dalat': 'Da Lat',
+  'huế': 'Hue',
+  'hue': 'Hue',
+  'quy nhon': 'Quy Nhon',
+  'quy nhơn': 'Quy Nhon',
+  'buôn ma thuột': 'Buon Ma Thuot',
+  'buon ma thuot': 'Buon Ma Thuot',
+  'long xuyên': 'Long Xuyen',
+  'long xuyen': 'Long Xuyen',
+  'mỹ tho': 'My Tho',
+  'my tho': 'My Tho',
+  'rạch giá': 'Rach Gia',
+  'rach gia': 'Rach Gia',
+  'cà mau': 'Ca Mau',
+  'ca mau': 'Ca Mau',
+  'phan thiết': 'Phan Thiet',
+  'phan thiet': 'Phan Thiet',
+  'tây ninh': 'Tay Ninh',
+  'tay ninh': 'Tay Ninh',
+  'biên hòa': 'Bien Hoa',
+  'bien hoa': 'Bien Hoa',
+  'thủ dầu một': 'Thu Dau Mot',
+  'thu dau mot': 'Thu Dau Mot',
+  'bắc ninh': 'Bac Ninh',
+  'bac ninh': 'Bac Ninh',
+  'hạ long': 'Ha Long',
+  'ha long': 'Ha Long',
+  'nam định': 'Nam Dinh',
+  'nam dinh': 'Nam Dinh',
+  'thái nguyên': 'Thai Nguyen',
+  'thai nguyen': 'Thai Nguyen',
+  'vinh': 'Vinh',
+  'pleiku': 'Pleiku',
+  'kon tum': 'Kon Tum',
+  'đồng hới': 'Dong Hoi',
+  'dong hoi': 'Dong Hoi'
+};
+
+// Hàm chuẩn hóa tên thành phố Việt Nam
+function normalizeVietnameseCity(cityName: string): string {
+  const normalized = cityName.toLowerCase().trim();
+  return vietnamCityMapping[normalized] || cityName;
+}
+
+// Hàm reverse geocoding - đổi tọa độ thành tên địa điểm
+export async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
+  const apiKey = process.env.OPENWEATHER_API_KEY;
+  
+  if (!apiKey) {
+    throw new Error('OpenWeatherMap API key không được cấu hình');
+  }
+
+  try {
+    const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=vi`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data: WeatherResponse = await response.json();
+    
+    // Trả về tên địa điểm từ OpenWeatherMap
+    return data.name || null;
+  } catch (error) {
+    console.error('Lỗi khi reverse geocoding:', error);
+    return null;
+  }
+}
+
 // Hàm chuyển đổi hướng gió thành tiếng Việt
 function getWindDirection(degrees: number): string {
   const directions = [
@@ -183,13 +285,15 @@ export async function getWeatherData(cityOrLat: string | number, lon?: number): 
 
   try {
     let url: string;
+    let normalizedCity: string;
     
     // Nếu có lon parameter, sử dụng coordinates
     if (typeof cityOrLat === 'number' && lon !== undefined) {
       url = `https://api.openweathermap.org/data/2.5/weather?lat=${cityOrLat}&lon=${lon}&appid=${apiKey}&units=metric&lang=vi`;
     } else {
-      // Sử dụng tên thành phố
-      url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(String(cityOrLat))}&appid=${apiKey}&units=metric&lang=vi`;
+      // Chuẩn hóa tên thành phố Việt Nam trước khi tìm kiếm
+      normalizedCity = normalizeVietnameseCity(String(cityOrLat));
+      url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(normalizedCity)}&appid=${apiKey}&units=metric&lang=vi`;
     }
     
     const response = await fetch(url);
