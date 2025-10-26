@@ -1084,13 +1084,10 @@ export async function POST(req: NextRequest) {
         const baseUrl = 'https://home-ai-telegram.vercel.app';
         
         const response = await fetch(`${baseUrl}/api/cron/daily-weather`, {
-          method: 'POST',
+          method: 'GET',
           headers: {
             'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            telegramId: userId?.toString()
-          })
+          }
         });
         
         if (!response.ok) {

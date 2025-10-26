@@ -177,18 +177,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'telegramId is required' }, { status: 400 });
     }
 
+    console.log(`Testing daily weather for telegramId: ${telegramId}`);
+
     // Lấy thông tin user
     const user = await getUserByTelegramId(telegramId);
     
-    if (!user || !user.preferences?.dailyWeather) {
+    if (!user) {
       return NextResponse.json({ 
-        error: 'User không tồn tại hoặc chưa bật thông báo hàng ngày' 
+        success: false,
+        error: 'User không tồn tại trong database' 
       }, { status: 404 });
+    }
+
+    console.log(`User found: ${user.firstName}, role: ${user.role}, dailyWeather: ${user.preferences?.dailyWeather}`);
+
+    // Cho phép admin test ngay cả khi chưa bật daily weather
+    if (user.role !== 'admin' && !user.preferences?.dailyWeather) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'User chưa bật thông báo hàng ngày. Sử dụng /daily on để bật.' 
+      }, { status: 400 });
     }
 
     if (!user.location?.latitude || !user.location?.longitude) {
       return NextResponse.json({ 
-        error: 'User chưa có vị trí đã lưu' 
+        success: false,
+        error: 'User chưa có vị trí đã lưu. Sử dụng /location để thiết lập vị trí.' 
       }, { status: 400 });
     }
 
