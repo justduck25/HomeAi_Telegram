@@ -11,6 +11,11 @@ Bot Telegram thông minh được hỗ trợ bởi Google Gemini AI, có khả n
   - Lệnh `/search <từ khóa>` để tìm kiếm thủ công
   - Lệnh `/image <từ khóa>` để tìm kiếm hình ảnh
   - Tích hợp kết quả vào câu trả lời AI
+- 🌤️ **Thông tin thời tiết**:
+  - Lệnh `/weather <tên thành phố>` để xem thời tiết hiện tại
+  - Lệnh `/forecast <tên thành phố>` để xem dự báo 5 ngày
+  - Hiển thị đầy đủ thông tin: nhiệt độ, độ ẩm, gió, áp suất, tầm nhìn
+  - Hỗ trợ tiếng Việt với emoji trực quan
 - 🎤 **Voice Response**: 
   - Lệnh `/voice <câu hỏi>` để nhận câu trả lời bằng giọng nói
   - Sử dụng Google Translate TTS (miễn phí, không cần API key)
@@ -45,6 +50,9 @@ MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/telegram-bot?ret
 # Optional: For web search feature
 GOOGLE_SEARCH_API_KEY=your_google_search_api_key
 GOOGLE_SEARCH_ENGINE_ID=your_search_engine_id
+
+# Optional: For weather feature
+OPENWEATHER_API_KEY=your_openweathermap_api_key
 ```
 
 ### 3. Lấy các API key cần thiết
@@ -70,6 +78,15 @@ GOOGLE_SEARCH_ENGINE_ID=your_search_engine_id
 2. Tạo Google Custom Search Engine
 3. Lấy API Key và Search Engine ID
 4. Cấu hình vào biến môi trường
+
+#### OpenWeatherMap API Key (Tùy chọn - cho tính năng thời tiết)
+
+1. Truy cập [OpenWeatherMap](https://openweathermap.org/api)
+2. Tạo tài khoản miễn phí
+3. Vào **My API Keys** để lấy API key
+4. Cấu hình vào biến môi trường `OPENWEATHER_API_KEY`
+
+> **Lưu ý**: Tài khoản miễn phí có giới hạn 1000 calls/ngày, đủ cho sử dụng cá nhân.
 
 ### 4. Chạy development server
 
@@ -178,6 +195,15 @@ tg-gemini-bot/
 - `/voice <câu hỏi>` - Nhận câu trả lời bằng giọng nói tiếng Việt
   - Ví dụ: `/voice 1+1 bằng mấy?`
   - Ví dụ: `/voice thủ đô của Việt Nam là gì?`
+
+### Lệnh thời tiết
+- `/weather <tên thành phố>` - Xem thời tiết hiện tại
+  - Ví dụ: `/weather Hà Nội`
+  - Ví dụ: `/weather Ho Chi Minh City`
+  - Ví dụ: `/weather Tokyo`
+- `/forecast <tên thành phố>` - Xem dự báo thời tiết 5 ngày
+  - Ví dụ: `/forecast Đà Nẵng`
+  - Ví dụ: `/forecast New York`
 
 ### Tính năng tự động
 - **Trò chuyện**: Nhắn tin bình thường, bot sẽ trả lời
