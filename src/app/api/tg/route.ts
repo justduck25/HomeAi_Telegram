@@ -3,15 +3,23 @@ import { GoogleGenerativeAI, type Content } from "@google/generative-ai";
 import { mongodb, type ContextMessage } from "@/lib/mongodb";
 import { textToSpeech, sendVoiceMessage, sendRecordingAction, isTextSuitableForTTS } from "@/lib/text-to-speech";
 
-// Admin configuration
-const ADMIN_USER_ID = 539971498;
+// Admin configuration - Danh sách admin user IDs
+const ADMIN_USER_IDS = [
+  539971498,  // Admin hiện tại
+  // Thêm user ID của @justduck25 khi có
+];
+
+// Admin usernames để reference (chỉ để ghi chú)
+const ADMIN_USERNAMES = [
+  "@justduck25"  // Username admin mới
+];
 
 // Sử dụng Node.js runtime để tương thích với SDK
 export const runtime = "nodejs";
 
 // Function kiểm tra quyền admin
 function isAdmin(userId: number | undefined): boolean {
-  return userId === ADMIN_USER_ID;
+  return userId !== undefined && ADMIN_USER_IDS.includes(userId);
 }
 
 // Hàm tìm kiếm web với Google Custom Search API
@@ -164,7 +172,8 @@ function getCommandsList(userId?: number): string {
     `• \`/voice <câu hỏi>\` - Trả lời bằng giọng nói\n\n` +
     `🧠 **Bộ nhớ:**\n` +
     `• \`/memory\` - Kiểm tra trạng thái bộ nhớ\n` +
-    `• \`/userinfo\` - Xem thông tin người dùng\n\n`;
+    `• \`/userinfo\` - Xem thông tin người dùng\n` +
+    `• \`/getid\` - Lấy user ID và thông tin cá nhân\n\n`;
   
   // Thêm lệnh admin nếu user là admin
   if (isAdmin(userId)) {
@@ -678,15 +687,35 @@ export async function POST(req: NextRequest) {
       }
       
       let adminInfo = `👑 **Admin Panel**\n\n`;
-      adminInfo += `🆔 Admin ID: \`${ADMIN_USER_ID}\`\n`;
-      adminInfo += `💬 Current Chat ID: \`${chatId}\`\n`;
-      adminInfo += `🤖 Bot Status: ✅ Online\n\n`;
+      adminInfo += `🆔 **Admin IDs:** \`${ADMIN_USER_IDS.join(', ')}\`\n`;
+      adminInfo += `👤 **Admin Usernames:** ${ADMIN_USERNAMES.join(', ')}\n`;
+      adminInfo += `💬 **Current Chat ID:** \`${chatId}\`\n`;
+      adminInfo += `🤖 **Bot Status:** ✅ Online\n\n`;
       adminInfo += `📋 **Available Admin Commands:**\n`;
       adminInfo += `• \`/admin\` - Xem panel admin\n`;
       adminInfo += `• \`/stats\` - Xem thống kê hệ thống\n`;
       adminInfo += `• \`/broadcast <message>\` - Gửi tin nhắn tới tất cả users\n`;
+      adminInfo += `• \`/getid\` - Lấy user ID của người gửi tin nhắn\n`;
       
       await sendTelegramMessage(chatId, adminInfo);
+      return NextResponse.json({ ok: true });
+    }
+    
+    // Xử lý lệnh getid - Lấy user ID
+    if (/^\/getid/.test(text)) {
+      const username = message.from?.username ? `@${message.from.username}` : "Không có username";
+      const firstName = message.from?.first_name || "Không có tên";
+      const lastName = (message.from as any)?.last_name || "";
+      const fullName = `${firstName} ${lastName}`.trim();
+      
+      let userInfo = `🆔 **Thông tin User ID**\n\n`;
+      userInfo += `👤 **Tên:** ${fullName}\n`;
+      userInfo += `🏷️ **Username:** ${username}\n`;
+      userInfo += `🆔 **User ID:** \`${userId}\`\n`;
+      userInfo += `💬 **Chat ID:** \`${chatId}\`\n`;
+      userInfo += `👑 **Admin:** ${isAdmin(userId) ? '✅ Có' : '❌ Không'}\n`;
+      
+      await sendTelegramMessage(chatId, userInfo);
       return NextResponse.json({ ok: true });
     }
     
@@ -1038,6 +1067,21 @@ export async function POST(req: NextRequest) {
       try {
         await sendRecordingAction(chatId);
         
+        // Kiểm tra xem text có bị rút gọn không
+        const cleanText = reply
+          .replace(/[*_`~]/g, '') // Loại bỏ markdown formatting
+          .replace(/#{1,6}\s/g, '') // Loại bỏ markdown headers
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Chuyển links thành text
+          .replace(/\n{3,}/g, '\n\n') // Giảm line breaks
+          .trim();
+        
+        const maxLength = 100;
+        const willBeTruncated = cleanText.length > maxLength;
+        
+        if (willBeTruncated) {
+          await sendTelegramMessage(chatId, "🔊 Đang tạo voice (text đã được rút gọn do giới hạn TTS)...");
+        }
+        
         const audioBuffer = await textToSpeech(reply);
         if (audioBuffer) {
           const voiceSent = await sendVoiceMessage(chatId, audioBuffer);
@@ -1045,7 +1089,7 @@ export async function POST(req: NextRequest) {
             await sendTelegramMessage(chatId, "❌ Không thể tạo voice response. Vui lòng thử lại!");
           }
         } else {
-          await sendTelegramMessage(chatId, "❌ Không thể chuyển đổi text thành voice. Vui lòng thử lại!");
+          await sendTelegramMessage(chatId, "❌ Không thể chuyển đổi text thành voice. Text có thể quá dài hoặc không phù hợp!");
         }
       } catch (error) {
         console.error("Lỗi tạo voice response:", error);
