@@ -1080,10 +1080,8 @@ export async function POST(req: NextRequest) {
       await sendTelegramMessage(chatId, "🧪 Đang test thông báo thời tiết hàng ngày...");
       
       try {
-        // Gọi API cron để test
-        const baseUrl = process.env.VERCEL_URL 
-          ? `https://${process.env.VERCEL_URL}` 
-          : process.env.NEXTAUTH_URL || 'http://localhost:3000';
+        // Gọi API cron để test - sử dụng URL production cố định
+        const baseUrl = 'https://home-ai-telegram.vercel.app';
         
         const response = await fetch(`${baseUrl}/api/cron/daily-weather`, {
           method: 'POST',
@@ -1094,6 +1092,10 @@ export async function POST(req: NextRequest) {
             telegramId: userId?.toString()
           })
         });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
         
         const result = await response.json();
         
