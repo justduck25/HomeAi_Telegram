@@ -339,7 +339,7 @@ function getAirQualityDescription(humidity: number, visibility: number): string 
 }
 
 // Hàm lấy thời tiết theo tọa độ với reverse geocoding
-export async function getWeatherByCoordinates(lat: number, lon: number): Promise<WeatherData | null> {
+export async function getWeatherByCoordinates(lat: number, lon: number): Promise<{ weatherData: WeatherData; cityName: string } | null> {
   try {
     // Lấy dữ liệu thời tiết
     const weather = await getWeatherData(lat, lon);
@@ -349,11 +349,15 @@ export async function getWeatherByCoordinates(lat: number, lon: number): Promise
 
     // Thử reverse geocoding để lấy tên địa điểm chính xác hơn
     const locationName = await reverseGeocode(lat, lon);
-    if (locationName) {
-      weather.name = locationName;
-    }
+    const cityName = locationName || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    
+    // Cập nhật tên trong weather data
+    weather.name = cityName;
 
-    return weather;
+    return {
+      weatherData: weather,
+      cityName: cityName
+    };
   } catch (error) {
     console.error('Lỗi khi lấy thời tiết theo tọa độ:', error);
     return null;
