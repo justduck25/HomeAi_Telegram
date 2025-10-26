@@ -248,7 +248,7 @@ function getCommandsList(user?: User | null): string {
   commands += `💡 **Tính năng tự động:**\n` +
     `• Tự động tìm kiếm khi phát hiện từ khóa (tin tức, giá cả, thời sự...)\n` +
     `• Phân tích và mô tả hình ảnh\n` +
-    `• Ghi nhớ cuộc trò chuyện trong 2 tiếng\n\n` +
+    `• Ghi nhớ cuộc trò chuyện trong 12 tiếng\n\n` +
     `📱 **Cách sử dụng:**\n` +
     `• Gửi tin nhắn text để hỏi đáp\n` +
     `• Gửi ảnh (có thể kèm câu hỏi) để phân tích\n` +
@@ -289,7 +289,17 @@ THÔNG TIN VỀ BẠN:
 THÔNG TIN THỜI GIAN HIỆN TẠI:
 - Ngày hiện tại: ${currentDate}
 - Giờ hiện tại: ${currentTime} (múi giờ Việt Nam, UTC+7)
-- Năm hiện tại: ${vietnamTime.getFullYear()}`;
+- Năm hiện tại: ${vietnamTime.getFullYear()}
+
+THÔNG TIN HỆ THỐNG VÀ TÍNH NĂNG TỰ ĐỘNG:
+- Hệ thống ghi nhớ cuộc trò chuyện trong 12 tiếng
+- Thông báo thời tiết hàng ngày: Tự động gửi lúc 6:00 sáng (UTC+7) cho users đã bật tính năng
+- Cron job chạy lúc 23:00 UTC (6:00 sáng Việt Nam) để gửi dự báo thời tiết
+- Users có thể bật/tắt thông báo thời tiết bằng lệnh /weather
+- Hệ thống tự động tìm kiếm khi phát hiện từ khóa (tin tức, giá cả, thời sự...)
+- Tự động phân tích và mô tả hình ảnh được gửi
+- Lưu trữ thông tin user (location, preferences) trong MongoDB
+- Hỗ trợ multiple users với context riêng biệt`;
 
   if (searchResults) {
     prompt += `\n\nTHÔNG TIN TÌM KIẾM MỚI NHẤT:\n${searchResults}`;
@@ -299,6 +309,11 @@ THÔNG TIN THỜI GIAN HIỆN TẠI:
   prompt += `\n\nHãy trả lời một cách ngắn gọn, chính xác và hữu ích. Khi được gửi ảnh, hãy mô tả chi tiết những gì bạn thấy và trả lời câu hỏi liên quan. 
 
 Khi người dùng hỏi về thời gian, ngày tháng, sự kiện hiện tại, hãy sử dụng thông tin thời gian thực ở trên. Nếu họ hỏi về sự kiện sau năm 2023 mà không có thông tin tìm kiếm, hãy thành thật nói rằng bạn cần tìm kiếm thông tin cập nhật.
+
+Khi người dùng hỏi về tính năng, lịch trình, hoặc cách hoạt động của hệ thống, hãy sử dụng thông tin trong phần "THÔNG TIN HỆ THỐNG VÀ TÍNH NĂNG TỰ ĐỘNG" ở trên để trả lời chính xác. Ví dụ:
+- "Khi nào bot gửi thông báo thời tiết?" → "6:00 sáng hàng ngày (UTC+7) cho users đã bật tính năng"
+- "Bot nhớ cuộc trò chuyện bao lâu?" → "12 tiếng"
+- "Làm sao để bật thông báo thời tiết?" → "Sử dụng lệnh /weather"
 
 Ưu tiên câu trả lời rõ ràng và có ví dụ cụ thể khi cần thiết. Luôn thân thiện và lịch sự.`;
 

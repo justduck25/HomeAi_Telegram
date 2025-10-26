@@ -95,9 +95,9 @@ class MongoDB {
       const collection = this.getCollection();
       if (!collection) return false;
 
-      // Xóa tin nhắn cũ hơn 2 tiếng (7200 giây)
-      const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000);
-      const filteredMessages = messages.filter(msg => msg.timestamp > twoHoursAgo);
+      // Xóa tin nhắn cũ hơn 12 tiếng (43200 giây)
+      const twelveHoursAgo = Date.now() - (12 * 60 * 60 * 1000);
+      const filteredMessages = messages.filter(msg => msg.timestamp > twelveHoursAgo);
 
       const updateData: any = {
         chatId,
@@ -133,9 +133,9 @@ class MongoDB {
       const doc = await collection.findOne({ chatId });
       if (!doc) return [];
 
-      // Lọc tin nhắn cũ hơn 2 tiếng
-      const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000);
-      const filteredMessages = doc.messages.filter(msg => msg.timestamp > twoHoursAgo);
+      // Lọc tin nhắn cũ hơn 12 tiếng
+      const twelveHoursAgo = Date.now() - (12 * 60 * 60 * 1000);
+      const filteredMessages = doc.messages.filter(msg => msg.timestamp > twelveHoursAgo);
 
       // Nếu có tin nhắn bị lọc, cập nhật lại database
       if (filteredMessages.length !== doc.messages.length) {
