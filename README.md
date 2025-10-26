@@ -4,10 +4,16 @@ Bot Telegram thông minh được hỗ trợ bởi Google Gemini AI, có khả n
 
 ## ✨ Tính năng
 
-- 💬 **Trò chuyện thông minh**: Giao tiếp tự nhiên với AI Gemini
+- 💬 **Trò chuyện thông minh**: Giao tiếp tự nhiên với AI Gemini 2.5 Flash
 - 🖼️ **Phân tích ảnh**: Mô tả và trả lời câu hỏi về hình ảnh
-- 🔍 **Tìm kiếm web**: Tự động search thông tin thời sự trên internet
+- 🔍 **Tìm kiếm web thông minh**: 
+  - Tự động search khi phát hiện từ khóa (tin tức, giá cả, thời sự...)
+  - Lệnh `/search <từ khóa>` để tìm kiếm thủ công
+  - Lệnh `/image <từ khóa>` để tìm kiếm hình ảnh
+  - Tích hợp kết quả vào câu trả lời AI
 - 🧠 **Ghi nhớ ngữ cảnh**: Lưu trữ cuộc trò chuyện trong 2 tiếng với MongoDB
+- 🤖 **Lệnh thông minh**: `/help`, `/start`, `/reset`, `/memory`
+- 👋 **Phát hiện chào hỏi**: Tự động hiển thị hướng dẫn khi được chào
 - ⚡ **Phản hồi nhanh**: Xử lý tin nhắn trong thời gian thực
 - 🔒 **Bảo mật**: Xác thực webhook với secret token
 - 🌐 **Deploy dễ dàng**: Tối ưu cho Vercel với MongoDB Atlas
@@ -153,20 +159,31 @@ tg-gemini-bot/
 ## 🤖 Cách sử dụng bot
 
 ### Lệnh cơ bản
-- `/start` - Bắt đầu sử dụng bot
-- `/reset` - Xóa lịch sử hội thoại
+- `/start` - Bắt đầu sử dụng bot và xem hướng dẫn
+- `/help` - Hiển thị danh sách tất cả lệnh
+- `/reset` - Xóa lịch sử hội thoại và bắt đầu mới
 - `/memory` - Kiểm tra trạng thái bộ nhớ
+
+### Lệnh tìm kiếm
 - `/search <từ khóa>` - Tìm kiếm thông tin trên web
+  - Ví dụ: `/search tin tức Việt Nam hôm nay`
+- `/image <từ khóa>` - Tìm kiếm hình ảnh
+  - Ví dụ: `/image mèo dễ thương`
 
 ### Tính năng tự động
 - **Trò chuyện**: Nhắn tin bình thường, bot sẽ trả lời
 - **Phân tích ảnh**: Gửi ảnh (có thể kèm câu hỏi)
-- **Tìm kiếm tự động**: Bot tự động search khi bạn hỏi về:
-  - Tin tức, thời sự hiện tại
-  - Giá cả, thị trường
-  - Thông tin sản phẩm
-  - Thời tiết, địa điểm
-  - Sự kiện, giải trí
+- **Chào hỏi thông minh**: Nói "xin chào", "hello" → bot hiển thị hướng dẫn
+- **Tìm kiếm tự động**: Bot tự động search khi phát hiện từ khóa:
+  - **Tìm kiếm trực tiếp**: "tìm kiếm", "search", "tra cứu", "research"
+  - **Tin tức & thời sự**: "tin tức", "mới nhất", "cập nhật", "hôm nay"
+  - **Giá cả & thị trường**: "giá", "bitcoin", "vàng", "tỷ giá", "thị trường"
+  - **Sản phẩm**: "mua", "bán", "review", "so sánh", "tốt nhất"
+  - **Học tập**: "trường", "đại học", "khóa học", "tuyển sinh"
+  - **Thời tiết**: "thời tiết", "nhiệt độ", "mưa", "bão"
+  - **Giải trí**: "phim", "nhạc", "concert", "sự kiện"
+  - **Thể thao**: "bóng đá", "world cup", "tỷ số", "kết quả"
+- **Tìm kiếm hình ảnh tự động**: "hình ảnh", "ảnh", "cho xem", "như thế nào"
 
 ## 🔧 Tùy chỉnh
 
