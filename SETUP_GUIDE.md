@@ -29,9 +29,6 @@ MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/telegram-bot?ret
 
 # 🌤️ OpenWeatherMap API
 OPENWEATHER_API_KEY=your_openweathermap_api_key
-
-# 🔐 Cron Secret (optional)
-CRON_SECRET=my-cron-secret-2024
 ```
 
 ### 2. Deploy to Vercel
@@ -131,7 +128,6 @@ npm run webhook:setup
 
 ### API Security
 - Webhook verification với `TELEGRAM_SECRET`
-- Cron job authentication với `CRON_SECRET`
 - Input validation và sanitization
 
 ## 📊 Monitoring & Stats
@@ -165,7 +161,6 @@ npm run webhook:setup
 
 4. **Daily notifications không gửi**
    - Kiểm tra cron job trong Vercel dashboard
-   - Verify `CRON_SECRET` nếu có
 
 ### Debug Commands
 

@@ -72,15 +72,6 @@ async function getUsersWithDailyNotification() {
 // Handler cho GET request (cron job)
 export async function GET(req: NextRequest) {
   try {
-    // Xác thực cron job (kiểm tra secret hoặc IP)
-    const authHeader = req.headers.get('authorization');
-    const cronSecret = process.env.CRON_SECRET;
-    
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      console.error('Unauthorized cron request');
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     console.log('🌅 Bắt đầu gửi thông báo thời tiết hàng ngày...');
 
     // Lấy danh sách users đã bật thông báo
@@ -103,6 +94,13 @@ export async function GET(req: NextRequest) {
     // Gửi thông báo cho từng user
     for (const user of users) {
       try {
+        // Kiểm tra user có location không
+        if (!user.location) {
+          console.log(`User ${user.telegramId} không có location, bỏ qua`);
+          failCount++;
+          continue;
+        }
+
         const { latitude, longitude } = user.location;
         const locationName = formatUserLocationName(user.location);
         
@@ -124,7 +122,7 @@ export async function GET(req: NextRequest) {
           weatherMessage += `\n🔕 Để tắt thông báo: /daily off`;
           
           // Gửi tin nhắn
-          const sent = await sendTelegramMessage(user.telegramId, weatherMessage);
+          const sent = await sendTelegramMessage(user.telegramId.toString(), weatherMessage);
           
           if (sent) {
             successCount++;
