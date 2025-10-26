@@ -5,9 +5,40 @@ import { mongodb, type ContextMessage } from "@/lib/mongodb";
 // Sử dụng Node.js runtime để tương thích với SDK
 export const runtime = "nodejs";
 
-// System prompt tiếng Việt
-const SYS_PROMPT =
-  "Bạn là trợ lý AI thông minh nói tiếng Việt có khả năng phân tích ảnh. Hãy trả lời một cách ngắn gọn, chính xác và hữu ích. Khi được gửi ảnh, hãy mô tả chi tiết những gì bạn thấy và trả lời câu hỏi liên quan. Ưu tiên câu trả lời rõ ràng và có ví dụ cụ thể khi cần thiết. Luôn thân thiện và lịch sự.";
+// Hàm tạo system prompt với thông tin thời gian thực
+function createSystemPrompt(): string {
+  const now = new Date();
+  
+  // Múi giờ Việt Nam (UTC+7)
+  const vietnamTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+  
+  const currentDate = vietnamTime.toLocaleDateString('vi-VN', {
+    weekday: 'long',
+    year: 'numeric', 
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC'
+  });
+  
+  const currentTime = vietnamTime.toLocaleTimeString('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'UTC'
+  });
+
+  return `Bạn là trợ lý AI thông minh nói tiếng Việt có khả năng phân tích ảnh. 
+
+THÔNG TIN THỜI GIAN HIỆN TẠI:
+- Ngày hiện tại: ${currentDate}
+- Giờ hiện tại: ${currentTime} (múi giờ Việt Nam, UTC+7)
+- Năm hiện tại: ${vietnamTime.getFullYear()}
+
+Hãy trả lời một cách ngắn gọn, chính xác và hữu ích. Khi được gửi ảnh, hãy mô tả chi tiết những gì bạn thấy và trả lời câu hỏi liên quan. 
+
+Khi người dùng hỏi về thời gian, ngày tháng, sự kiện hiện tại, hãy sử dụng thông tin thời gian thực ở trên. Nếu họ hỏi về sự kiện sau năm 2023, hãy thành thật nói rằng bạn không có thông tin cập nhật về điều đó.
+
+Ưu tiên câu trả lời rõ ràng và có ví dụ cụ thể khi cần thiết. Luôn thân thiện và lịch sự.`;
+}
 
 // Định nghĩa kiểu dữ liệu cho Telegram message
 type TelegramPhotoSize = {
@@ -418,9 +449,9 @@ export async function POST(req: NextRequest) {
       currentMessageParts.push(imagePart);
     }
 
-    // Tạo history cho Gemini (bao gồm system prompt)
+    // Tạo history cho Gemini (bao gồm system prompt với thời gian thực)
     const history: Content[] = [
-      { role: "user", parts: [{ text: SYS_PROMPT }] },
+      { role: "user", parts: [{ text: createSystemPrompt() }] },
       ...context,
       { role: "user", parts: currentMessageParts },
     ];
