@@ -11,6 +11,7 @@ export interface ContextMessage {
 export interface ChatContext {
   _id?: string;
   chatId: string;
+  userId?: number; // Telegram user ID
   messages: ContextMessage[];
   lastUpdated: Date;
 }
@@ -64,7 +65,7 @@ class MongoDB {
     return this.db.collection<ChatContext>('chat_contexts');
   }
 
-  async saveContext(chatId: string, messages: ContextMessage[]): Promise<boolean> {
+  async saveContext(chatId: string, messages: ContextMessage[], userId?: number): Promise<boolean> {
     try {
       if (!await this.connect()) return false;
       
@@ -75,15 +76,20 @@ class MongoDB {
       const twoHoursAgo = Date.now() - (2 * 60 * 60 * 1000);
       const filteredMessages = messages.filter(msg => msg.timestamp > twoHoursAgo);
 
+      const updateData: any = {
+        chatId,
+        messages: filteredMessages,
+        lastUpdated: new Date()
+      };
+
+      // Chỉ cập nhật userId nếu được cung cấp
+      if (userId !== undefined) {
+        updateData.userId = userId;
+      }
+
       await collection.updateOne(
         { chatId },
-        {
-          $set: {
-            chatId,
-            messages: filteredMessages,
-            lastUpdated: new Date()
-          }
-        },
+        { $set: updateData },
         { upsert: true }
       );
 
@@ -117,6 +123,21 @@ class MongoDB {
     } catch (error) {
       console.error('❌ Error getting context:', error);
       return [];
+    }
+  }
+
+  async getChatInfo(chatId: string): Promise<ChatContext | null> {
+    try {
+      if (!await this.connect()) return null;
+      
+      const collection = this.getCollection();
+      if (!collection) return null;
+
+      const doc = await collection.findOne({ chatId });
+      return doc;
+    } catch (error) {
+      console.error('❌ Error getting chat info:', error);
+      return null;
     }
   }
 

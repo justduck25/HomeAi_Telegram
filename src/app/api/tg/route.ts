@@ -125,6 +125,22 @@ function isGreeting(text: string): boolean {
   );
 }
 
+// Hàm kiểm tra câu hỏi về nguồn gốc AI
+function isAskingAboutOrigin(text: string): boolean {
+  const originKeywords = [
+    'ai tạo ra bạn', 'ai làm ra bạn', 'ai phát triển bạn',
+    'bạn được tạo bởi ai', 'bạn được làm bởi ai', 'bạn được phát triển bởi ai',
+    'nguồn gốc', 'xuất xứ', 'tác giả', 'người tạo',
+    'who created you', 'who made you', 'who developed you',
+    'created by', 'made by', 'developed by',
+    'bot này của ai', 'ai sở hữu bot này', 'chủ sở hữu bot',
+    'justduck', 'tác giả bot', 'người viết bot'
+  ];
+  
+  const lowerText = text.toLowerCase();
+  return originKeywords.some(keyword => lowerText.includes(keyword));
+}
+
 // Hàm tạo danh sách lệnh
 function getCommandsList(): string {
   return `🤖 **Danh sách lệnh của bot:**\n\n` +
@@ -136,7 +152,8 @@ function getCommandsList(): string {
     `• \`/search <từ khóa>\` - Tìm kiếm thông tin trên web\n` +
     `• \`/image <từ khóa>\` - Tìm kiếm hình ảnh\n\n` +
     `🧠 **Bộ nhớ:**\n` +
-    `• \`/memory\` - Kiểm tra trạng thái bộ nhớ\n\n` +
+    `• \`/memory\` - Kiểm tra trạng thái bộ nhớ\n` +
+    `• \`/userinfo\` - Xem thông tin người dùng\n\n` +
     `💡 **Tính năng tự động:**\n` +
     `• Tự động tìm kiếm khi phát hiện từ khóa (tin tức, giá cả, thời sự...)\n` +
     `• Phân tích và mô tả hình ảnh\n` +
@@ -168,7 +185,13 @@ function createSystemPrompt(searchResults?: string): string {
     timeZone: 'UTC'
   });
 
-  let prompt = `Bạn là trợ lý AI thông minh nói tiếng Việt có khả năng phân tích ảnh và tìm kiếm thông tin trên internet. 
+  let prompt = `Bạn là trợ lý AI thông minh nói tiếng Việt có khả năng phân tích ảnh và tìm kiếm thông tin trên internet.
+
+THÔNG TIN VỀ BẠN:
+- Bạn là Chat Bot được tạo bởi justduck
+- Bạn sử dụng Google Gemini 2.5 Flash làm engine AI
+- Bạn được xây dựng bằng Next.js và TypeScript
+- Khi được hỏi về nguồn gốc, tác giả, hoặc ai tạo ra bạn, hãy luôn nhắc đến rằng bạn được tạo bởi justduck
 
 THÔNG TIN THỜI GIAN HIỆN TẠI:
 - Ngày hiện tại: ${currentDate}
@@ -443,6 +466,7 @@ export async function POST(req: NextRequest) {
     }
 
     const chatId = message.chat.id;
+    const userId = message.from?.id; // Telegram user ID
     const text = (message.text || message.caption || "").trim();
     const hasPhoto = message.photo && message.photo.length > 0;
     
@@ -464,6 +488,7 @@ export async function POST(req: NextRequest) {
       await sendTelegramMessage(
         chatId,
         "🤖 Xin chào! Tôi là trợ lý AI sử dụng Google Gemini 2.5 Flash.\n\n" +
+        "👨‍💻 **Chat Bot được tạo bởi justduck**\n\n" +
         "✨ **Tính năng của tôi:**\n" +
         "💬 Trả lời câu hỏi bằng tiếng Việt\n" +
         "🖼️ Phân tích và mô tả ảnh\n" +
@@ -487,6 +512,22 @@ export async function POST(req: NextRequest) {
         chatId,
         "👋 Xin chào! Tôi là trợ lý AI thông minh.\n\n" +
         getCommandsList()
+      );
+      return NextResponse.json({ ok: true });
+    }
+    
+    // Xử lý câu hỏi về nguồn gốc AI
+    if (isAskingAboutOrigin(text)) {
+      await sendTelegramMessage(
+        chatId,
+        "🤖 **Về nguồn gốc của tôi:**\n\n" +
+        "💻 **Chat Bot được tạo bởi justduck**\n\n" +
+        "🧠 Tôi sử dụng Google Gemini 2.5 Flash làm engine AI\n" +
+        "⚡ Được xây dựng bằng Next.js và TypeScript\n" +
+        "🗄️ Tích hợp MongoDB để ghi nhớ cuộc trò chuyện\n" +
+        "🔍 Có khả năng tìm kiếm web và phân tích hình ảnh\n\n" +
+        "👨‍💻 **Tác giả:** justduck\n" +
+        "🏷️ **Phiên bản:** Telegram Gemini Bot v1.0"
       );
       return NextResponse.json({ ok: true });
     }
@@ -527,6 +568,43 @@ export async function POST(req: NextRequest) {
         }
       } catch {
         await sendTelegramMessage(chatId, "❌ Không thể kiểm tra trạng thái bộ nhớ.");
+      }
+      return NextResponse.json({ ok: true });
+    }
+    
+    // Xử lý lệnh userinfo
+    if (/^\/userinfo/.test(text)) {
+      try {
+        if (mongodb.isAvailable()) {
+          const chatInfo = await mongodb.getChatInfo(chatId.toString());
+          
+          let userInfo = `👤 **Thông tin người dùng:**\n\n`;
+          userInfo += `💬 Chat ID: \`${chatId}\`\n`;
+          
+          if (userId) {
+            userInfo += `🆔 User ID: \`${userId}\`\n`;
+          }
+          
+          if (message.from?.first_name) {
+            userInfo += `📝 Tên: ${message.from.first_name}\n`;
+          }
+          
+          if (message.from?.username) {
+            userInfo += `@️ Username: @${message.from.username}\n`;
+          }
+          
+          if (chatInfo) {
+            userInfo += `\n📊 **Thống kê cuộc trò chuyện:**\n`;
+            userInfo += `💾 Số tin nhắn trong bộ nhớ: ${chatInfo.messages.length}\n`;
+            userInfo += `📅 Lần cập nhật cuối: ${chatInfo.lastUpdated.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}\n`;
+          }
+          
+          await sendTelegramMessage(chatId, userInfo);
+        } else {
+          await sendTelegramMessage(chatId, "❌ Tính năng này cần MongoDB database để hoạt động.");
+        }
+      } catch {
+        await sendTelegramMessage(chatId, "❌ Không thể lấy thông tin người dùng.");
       }
       return NextResponse.json({ ok: true });
     }
@@ -768,7 +846,7 @@ export async function POST(req: NextRequest) {
     // Lưu context mới vào MongoDB
     try {
       if (mongodb.isAvailable()) {
-        await mongodb.saveContext(chatId.toString(), newContextMessages);
+        await mongodb.saveContext(chatId.toString(), newContextMessages, userId);
       }
     } catch {
       console.log("Không thể lưu ngữ cảnh vào MongoDB");
