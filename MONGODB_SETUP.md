@@ -80,6 +80,7 @@ MONGODB_URI=mongodb+srv://telegram-bot-user:your_password@telegram-bot-cluster.x
 {
   _id: ObjectId("..."),
   chatId: "123456789",  // Telegram chat ID
+  userId: 987654321,    // Telegram user ID (optional)
   messages: [
     {
       role: "user",
@@ -109,8 +110,33 @@ MONGODB_URI=mongodb+srv://telegram-bot-user:your_password@telegram-bot-cluster.x
 
 ### 🧠 Memory Commands
 - `/memory`: Xem trạng thái bộ nhớ
+- `/userinfo`: Xem thông tin người dùng và thống kê
 - `/reset`: Xóa toàn bộ bộ nhớ
 - Tự động hiển thị số tin nhắn và thời gian
+
+### 👑 Admin Commands (chỉ dành cho Admin ID: 539971498)
+- `/admin`: Xem panel quản trị
+- `/stats`: Xem thống kê hệ thống chi tiết
+- `/broadcast <tin nhắn>`: Gửi thông báo tới tất cả users đã từng sử dụng bot
+
+## 👑 Admin System
+
+### 🔐 Admin Configuration
+- **Admin User ID**: `539971498` (hard-coded trong source code)
+- **Quyền hạn**: Truy cập tất cả lệnh admin và thống kê hệ thống
+- **Bảo mật**: Chỉ user có ID chính xác mới có thể sử dụng lệnh admin
+
+### 📊 Admin Features
+- **System Stats**: Xem tổng số cuộc trò chuyện, tin nhắn, và hoạt động 24h gần nhất
+- **Broadcast**: Gửi thông báo tới tất cả users đã từng sử dụng bot
+- **User Management**: Xem thông tin chi tiết về từng user và cuộc trò chuyện
+- **Real-time Monitoring**: Theo dõi trạng thái MongoDB và hệ thống
+
+### 🚀 Admin Panel Usage
+1. Sử dụng `/admin` để xem panel quản trị
+2. Sử dụng `/stats` để xem thống kê chi tiết
+3. Sử dụng `/broadcast <message>` để gửi thông báo
+4. Lệnh admin chỉ hiển thị trong `/help` khi user là admin
 
 ## 🛠️ Troubleshooting
 

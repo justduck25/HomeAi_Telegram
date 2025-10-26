@@ -11,6 +11,10 @@ Bot Telegram thông minh được hỗ trợ bởi Google Gemini AI, có khả n
   - Lệnh `/search <từ khóa>` để tìm kiếm thủ công
   - Lệnh `/image <từ khóa>` để tìm kiếm hình ảnh
   - Tích hợp kết quả vào câu trả lời AI
+- 🎤 **Voice Response**: 
+  - Lệnh `/voice <câu hỏi>` để nhận câu trả lời bằng giọng nói
+  - Sử dụng Google Translate TTS (miễn phí, không cần API key)
+  - Hỗ trợ tiếng Việt tự nhiên
 - 🧠 **Ghi nhớ ngữ cảnh**: Lưu trữ cuộc trò chuyện trong 2 tiếng với MongoDB
 - 🤖 **Lệnh thông minh**: `/help`, `/start`, `/reset`, `/memory`
 - 👋 **Phát hiện chào hỏi**: Tự động hiển thị hướng dẫn khi được chào
@@ -169,6 +173,11 @@ tg-gemini-bot/
   - Ví dụ: `/search tin tức Việt Nam hôm nay`
 - `/image <từ khóa>` - Tìm kiếm hình ảnh
   - Ví dụ: `/image mèo dễ thương`
+
+### Lệnh voice
+- `/voice <câu hỏi>` - Nhận câu trả lời bằng giọng nói tiếng Việt
+  - Ví dụ: `/voice 1+1 bằng mấy?`
+  - Ví dụ: `/voice thủ đô của Việt Nam là gì?`
 
 ### Tính năng tự động
 - **Trò chuyện**: Nhắn tin bình thường, bot sẽ trả lời
