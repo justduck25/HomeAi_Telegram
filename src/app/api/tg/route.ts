@@ -1,27 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI, type Content } from "@google/generative-ai";
-import { mongodb, updateUserPreferences, getUserById, saveUserLocation, getUserLocation, type ContextMessage } from "@/lib/mongodb";
+import { 
+  initializeUser, 
+  getUserByTelegramId, 
+  updateUser,
+  saveMemory,
+  getMemory,
+  clearMemory,
+  getAllUsers,
+  type User 
+} from "@/lib/database";
 import { textToSpeech, sendVoiceMessage, sendRecordingAction, isTextSuitableForTTS } from "@/lib/text-to-speech";
 import { getWeatherData, formatWeatherMessage, getWeatherForecast, formatForecastMessage } from "@/lib/weather";
-// import { formatLocationName } from "@/lib/location"; // Không cần thiết nữa
-
-// Admin configuration - Danh sách admin user IDs
-const ADMIN_USER_IDS = [
-  539971498,   // Admin hiện tại
-  6539971498,  // @justduck25 - Nguyen Doan Trong Duc
-];
-
-// Admin usernames để reference (chỉ để ghi chú)
-const ADMIN_USERNAMES = [
-  "@justduck25"  // Username admin mới
-];
 
 // Sử dụng Node.js runtime để tương thích với SDK
 export const runtime = "nodejs";
 
-// Function kiểm tra quyền admin
-function isAdmin(userId: number | undefined): boolean {
-  return userId !== undefined && ADMIN_USER_IDS.includes(userId);
+// Types for compatibility
+type ContextMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+};
+
+// Helper function to format location name
+function formatUserLocationName(location: { latitude: number; longitude: number; city?: string; country?: string }): string {
+  if (location.city && location.country) {
+    return `${location.city}, ${location.country}`;
+  } else if (location.city) {
+    return location.city;
+  } else if (location.country) {
+    return location.country;
+  } else {
+    return `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`;
+  }
 }
 
 // Hàm gửi tin nhắn với inline keyboard yêu cầu location
@@ -199,7 +211,7 @@ function isAskingAboutOrigin(text: string): boolean {
 }
 
 // Hàm tạo danh sách lệnh
-function getCommandsList(userId?: number): string {
+function getCommandsList(user?: User | null): string {
   let commands = `🤖 **Danh sách lệnh của bot:**\n\n` +
     `📝 **Lệnh cơ bản:**\n` +
     `• \`/start\` - Khởi động bot và xem hướng dẫn\n` +
@@ -223,11 +235,14 @@ function getCommandsList(userId?: number): string {
     `• \`/getid\` - Lấy user ID và thông tin cá nhân\n\n`;
   
   // Thêm lệnh admin nếu user là admin
-  if (isAdmin(userId)) {
+  if (user?.role === 'admin') {
     commands += `👑 **Lệnh Admin:**\n` +
       `• \`/admin\` - Xem panel quản trị\n` +
       `• \`/stats\` - Xem thống kê hệ thống\n` +
-      `• \`/broadcast <tin nhắn>\` - Gửi thông báo tới tất cả users\n\n`;
+      `• \`/broadcast <tin nhắn>\` - Gửi thông báo tới tất cả users\n` +
+      `• \`/users\` - Quản lý người dùng\n` +
+      `• \`/promote <user_id>\` - Thăng cấp user thành admin\n` +
+      `• \`/demote <user_id>\` - Hạ cấp admin thành user\n\n`;
   }
   
   commands += `💡 **Tính năng tự động:**\n` +
@@ -533,18 +548,6 @@ function detectMimeType(buffer: Buffer): string {
   return "image/jpeg"; // Default fallback
 }
 
-// Hàm format location name cho UserLocation từ mongodb
-function formatUserLocationName(location: { latitude: number; longitude: number; city?: string; country?: string }): string {
-  if (location.city && location.country) {
-    return `${location.city}, ${location.country}`;
-  } else if (location.city) {
-    return location.city;
-  } else if (location.country) {
-    return location.country;
-  } else {
-    return `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`;
-  }
-}
 
 // Hàm gửi typing indicator
 async function sendTypingAction(chatId: number) {
@@ -617,14 +620,27 @@ export async function POST(req: NextRequest) {
       console.log("Voice command detected:", text);
     }
 
-    // 4. Xử lý các lệnh đặc biệt
+    // 4. Initialize user và xử lý các lệnh đặc biệt
+    let currentUser: User | null = null;
+    if (userId) {
+      try {
+        currentUser = await initializeUser(userId, {
+          username: message.from?.username,
+          firstName: message.from?.first_name,
+          lastName: message.from?.last_name,
+        });
+      } catch (error) {
+        console.error("Error initializing user:", error);
+      }
+    }
+
     if (/^\/start/.test(text)) {
       try {
-        if (mongodb.isAvailable()) {
-          await mongodb.clearContext(chatId.toString());
+        if (userId) {
+          await clearMemory(userId);
         }
       } catch {
-        console.log("Không thể xóa ngữ cảnh từ MongoDB");
+        console.log("Không thể xóa ngữ cảnh");
       }
       
       await sendTelegramMessage(
@@ -636,15 +652,16 @@ export async function POST(req: NextRequest) {
         "🖼️ Phân tích và mô tả ảnh\n" +
         "📝 Viết bài, sáng tác, giải thích\n" +
         "🔍 Tìm kiếm thông tin & hình ảnh trên internet\n" +
-        (mongodb.isAvailable() ? "🧠 Ghi nhớ cuộc trò chuyện trong 2 tiếng\n" : "") + "\n" +
-        getCommandsList(userId)
+        "🧠 Ghi nhớ cuộc trò chuyện\n" +
+        "🌤️ Thông tin thời tiết\n\n" +
+        getCommandsList(currentUser)
       );
       return NextResponse.json({ ok: true });
     }
     
     // Xử lý lệnh help
     if (/^\/help/.test(text)) {
-      await sendTelegramMessage(chatId, getCommandsList(userId));
+      await sendTelegramMessage(chatId, getCommandsList(currentUser));
       return NextResponse.json({ ok: true });
     }
     
@@ -653,7 +670,7 @@ export async function POST(req: NextRequest) {
       await sendTelegramMessage(
         chatId,
         "👋 Xin chào! Tôi là trợ lý AI thông minh.\n\n" +
-        getCommandsList(userId)
+        getCommandsList(currentUser)
       );
       return NextResponse.json({ ok: true });
     }
@@ -676,11 +693,11 @@ export async function POST(req: NextRequest) {
     
     if (/^\/reset/.test(text)) {
       try {
-        if (mongodb.isAvailable()) {
-          await mongodb.clearContext(chatId.toString());
+        if (userId) {
+          await clearMemory(userId);
         }
       } catch {
-        console.log("Không thể xóa ngữ cảnh từ MongoDB");
+        console.log("Không thể xóa ngữ cảnh");
       }
       
       await sendTelegramMessage(
@@ -692,21 +709,26 @@ export async function POST(req: NextRequest) {
     
     if (/^\/memory/.test(text)) {
       try {
-        if (mongodb.isAvailable()) {
-          const stats = await mongodb.getMemoryStats(chatId.toString());
+        if (userId) {
+          const messages = await getMemory(userId);
           
           let memoryInfo = `🧠 **Trạng thái bộ nhớ:**\n\n`;
-          memoryInfo += `📊 Tổng số tin nhắn: ${stats.totalMessages}\n`;
-          memoryInfo += `👤 Tin nhắn của bạn: ${stats.userMessages}\n`;
-          if (stats.oldestMessageTime) {
-            const ageHours = (Date.now() - stats.oldestMessageTime) / (1000 * 60 * 60);
+          memoryInfo += `📊 Tổng số tin nhắn: ${messages.length}\n`;
+          
+          const userMessages = messages.filter(m => m.role === 'user').length;
+          memoryInfo += `👤 Tin nhắn của bạn: ${userMessages}\n`;
+          
+          if (messages.length > 0) {
+            const oldestMessage = messages[0];
+            const ageHours = (Date.now() - oldestMessage.timestamp.getTime()) / (1000 * 60 * 60);
             memoryInfo += `⏰ Tin nhắn cũ nhất: ${ageHours.toFixed(1)} tiếng trước\n`;
           }
-          memoryInfo += `\n💡 Tôi sẽ tự động xóa tin nhắn cũ hơn 2 tiếng.`;
+          
+          memoryInfo += `\n💡 Bộ nhớ được lưu trữ để cải thiện trải nghiệm trò chuyện.`;
           
           await sendTelegramMessage(chatId, memoryInfo);
         } else {
-          await sendTelegramMessage(chatId, "❌ Tính năng bộ nhớ chưa được kích hoạt (cần MongoDB database).");
+          await sendTelegramMessage(chatId, "❌ Không thể kiểm tra trạng thái bộ nhớ.");
         }
       } catch {
         await sendTelegramMessage(chatId, "❌ Không thể kiểm tra trạng thái bộ nhớ.");
@@ -717,9 +739,6 @@ export async function POST(req: NextRequest) {
     // Xử lý lệnh userinfo
     if (/^\/userinfo/.test(text)) {
       try {
-        if (mongodb.isAvailable()) {
-          const chatInfo = await mongodb.getChatInfo(chatId.toString());
-          
           let userInfo = `👤 **Thông tin người dùng:**\n\n`;
           userInfo += `💬 Chat ID: \`${chatId}\`\n`;
           
@@ -735,16 +754,26 @@ export async function POST(req: NextRequest) {
             userInfo += `@️ Username: @${message.from.username}\n`;
           }
           
-          if (chatInfo) {
-            userInfo += `\n📊 **Thống kê cuộc trò chuyện:**\n`;
-            userInfo += `💾 Số tin nhắn trong bộ nhớ: ${chatInfo.messages.length}\n`;
-            userInfo += `📅 Lần cập nhật cuối: ${chatInfo.lastUpdated.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}\n`;
+        if (currentUser) {
+          userInfo += `\n👑 **Vai trò:** ${currentUser.role === 'admin' ? 'Admin' : 'Người dùng'}\n`;
+          
+          if (currentUser.location) {
+            userInfo += `📍 **Vị trí đã lưu:** ${currentUser.location.city || 'Không rõ'}\n`;
           }
           
-          await sendTelegramMessage(chatId, userInfo);
-        } else {
-          await sendTelegramMessage(chatId, "❌ Tính năng này cần MongoDB database để hoạt động.");
+          userInfo += `🌤️ **Thông báo hàng ngày:** ${currentUser.preferences.dailyWeather ? 'Bật' : 'Tắt'}\n`;
+          
+          if (userId) {
+            const messages = await getMemory(userId);
+            userInfo += `\n📊 **Thống kê cuộc trò chuyện:**\n`;
+            userInfo += `💾 Số tin nhắn trong bộ nhớ: ${messages.length}\n`;
+          }
+          
+          userInfo += `📅 Tham gia: ${currentUser.createdAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}\n`;
+          userInfo += `⏰ Hoạt động cuối: ${currentUser.lastActive.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}\n`;
         }
+        
+        await sendTelegramMessage(chatId, userInfo);
       } catch {
         await sendTelegramMessage(chatId, "❌ Không thể lấy thông tin người dùng.");
       }
@@ -753,24 +782,179 @@ export async function POST(req: NextRequest) {
     
     // Xử lý lệnh admin
     if (/^\/admin/.test(text)) {
-      if (!isAdmin(userId)) {
+      if (currentUser?.role !== 'admin') {
         await sendTelegramMessage(chatId, "❌ Bạn không có quyền sử dụng lệnh này!");
         return NextResponse.json({ ok: true });
       }
       
+      try {
+        const allUsers = await getAllUsers();
+        const adminUsers = allUsers.filter(u => u.role === 'admin');
+        const regularUsers = allUsers.filter(u => u.role === 'user');
+      
       let adminInfo = `👑 **Admin Panel**\n\n`;
-      adminInfo += `🆔 **Admin IDs:** \`${ADMIN_USER_IDS.join(', ')}\`\n`;
-      adminInfo += `👤 **Admin Usernames:** ${ADMIN_USERNAMES.join(', ')}\n`;
-      adminInfo += `💬 **Current Chat ID:** \`${chatId}\`\n`;
-      adminInfo += `🤖 **Bot Status:** ✅ Online\n\n`;
+        adminInfo += `👥 **Thống kê người dùng:**\n`;
+        adminInfo += `• Tổng số users: ${allUsers.length}\n`;
+        adminInfo += `• Admins: ${adminUsers.length}\n`;
+        adminInfo += `• Users thường: ${regularUsers.length}\n\n`;
+        
+        adminInfo += `👑 **Danh sách Admins:**\n`;
+        for (const admin of adminUsers) {
+          adminInfo += `• ${admin.firstName || 'N/A'} (@${admin.username || 'N/A'}) - ID: \`${admin.telegramId}\`\n`;
+        }
+        
+        adminInfo += `\n💬 **Current Chat ID:** \`${chatId}\`\n`;
+        adminInfo += `🤖 **Bot Status:** ✅ Online\n\n`;
       adminInfo += `📋 **Available Admin Commands:**\n`;
       adminInfo += `• \`/admin\` - Xem panel admin\n`;
       adminInfo += `• \`/stats\` - Xem thống kê hệ thống\n`;
+        adminInfo += `• \`/users\` - Quản lý người dùng\n`;
+        adminInfo += `• \`/promote <user_id>\` - Thăng cấp user thành admin\n`;
+        adminInfo += `• \`/demote <user_id>\` - Hạ cấp admin thành user\n`;
       adminInfo += `• \`/broadcast <message>\` - Gửi tin nhắn tới tất cả users\n`;
-      adminInfo += `• \`/testdaily\` - Test thông báo thời tiết hàng ngày\n`;
-      adminInfo += `• \`/getid\` - Lấy user ID của người gửi tin nhắn\n`;
+        adminInfo += `• \`/testdaily\` - Test thông báo thời tiết hàng ngày\n`;
       
       await sendTelegramMessage(chatId, adminInfo);
+      } catch (error) {
+        await sendTelegramMessage(chatId, "❌ Không thể tải thông tin admin panel.");
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // Xử lý lệnh users (admin only)
+    if (/^\/users/.test(text)) {
+      if (currentUser?.role !== 'admin') {
+        await sendTelegramMessage(chatId, "❌ Bạn không có quyền sử dụng lệnh này!");
+        return NextResponse.json({ ok: true });
+      }
+
+      try {
+        const allUsers = await getAllUsers();
+        
+        let usersList = `👥 **Danh sách người dùng (${allUsers.length}):**\n\n`;
+        
+        // Group by role
+        const admins = allUsers.filter(u => u.role === 'admin');
+        const users = allUsers.filter(u => u.role === 'user');
+        
+        if (admins.length > 0) {
+          usersList += `👑 **Admins (${admins.length}):**\n`;
+          for (const admin of admins) {
+            usersList += `• ${admin.firstName || 'N/A'} (@${admin.username || 'N/A'})\n`;
+            usersList += `  ID: \`${admin.telegramId}\` | Tham gia: ${admin.createdAt.toLocaleDateString('vi-VN')}\n\n`;
+          }
+        }
+        
+        if (users.length > 0) {
+          usersList += `👤 **Users (${users.length}):**\n`;
+          for (const user of users.slice(0, 10)) { // Limit to 10 users to avoid long messages
+            usersList += `• ${user.firstName || 'N/A'} (@${user.username || 'N/A'})\n`;
+            usersList += `  ID: \`${user.telegramId}\` | Tham gia: ${user.createdAt.toLocaleDateString('vi-VN')}\n\n`;
+          }
+          
+          if (users.length > 10) {
+            usersList += `... và ${users.length - 10} users khác\n\n`;
+          }
+        }
+        
+        usersList += `💡 Sử dụng \`/promote <user_id>\` để thăng cấp user thành admin\n`;
+        usersList += `💡 Sử dụng \`/demote <user_id>\` để hạ cấp admin thành user`;
+        
+        await sendTelegramMessage(chatId, usersList);
+      } catch (error) {
+        await sendTelegramMessage(chatId, "❌ Không thể tải danh sách người dùng.");
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // Xử lý lệnh promote (admin only)
+    if (/^\/promote\s+/.test(text)) {
+      if (currentUser?.role !== 'admin') {
+        await sendTelegramMessage(chatId, "❌ Bạn không có quyền sử dụng lệnh này!");
+        return NextResponse.json({ ok: true });
+      }
+
+      const targetUserId = text.replace(/^\/promote\s+/, '').trim();
+      
+      if (!targetUserId || isNaN(Number(targetUserId))) {
+        await sendTelegramMessage(chatId, "❌ Vui lòng nhập User ID hợp lệ!\n\nVí dụ: `/promote 123456789`");
+        return NextResponse.json({ ok: true });
+      }
+
+      try {
+        const targetUser = await getUserByTelegramId(Number(targetUserId));
+        
+        if (!targetUser) {
+          await sendTelegramMessage(chatId, "❌ Không tìm thấy user với ID này!");
+          return NextResponse.json({ ok: true });
+        }
+
+        if (targetUser.role === 'admin') {
+          await sendTelegramMessage(chatId, "❌ User này đã là admin rồi!");
+          return NextResponse.json({ ok: true });
+        }
+
+        await updateUser(Number(targetUserId), { role: 'admin' });
+        
+        const successMsg = `✅ **Thăng cấp thành công!**\n\n` +
+          `👤 User: ${targetUser.firstName || 'N/A'} (@${targetUser.username || 'N/A'})\n` +
+          `🆔 ID: \`${targetUserId}\`\n` +
+          `👑 Vai trò mới: **Admin**`;
+        
+        await sendTelegramMessage(chatId, successMsg);
+      } catch (error) {
+        await sendTelegramMessage(chatId, "❌ Không thể thăng cấp user.");
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // Xử lý lệnh demote (admin only)
+    if (/^\/demote\s+/.test(text)) {
+      if (currentUser?.role !== 'admin') {
+        await sendTelegramMessage(chatId, "❌ Bạn không có quyền sử dụng lệnh này!");
+        return NextResponse.json({ ok: true });
+      }
+
+      const targetUserId = text.replace(/^\/demote\s+/, '').trim();
+      
+      if (!targetUserId || isNaN(Number(targetUserId))) {
+        await sendTelegramMessage(chatId, "❌ Vui lòng nhập User ID hợp lệ!\n\nVí dụ: `/demote 123456789`");
+        return NextResponse.json({ ok: true });
+      }
+
+      try {
+        const targetUser = await getUserByTelegramId(Number(targetUserId));
+        
+        if (!targetUser) {
+          await sendTelegramMessage(chatId, "❌ Không tìm thấy user với ID này!");
+          return NextResponse.json({ ok: true });
+        }
+
+        if (targetUser.role === 'user') {
+          await sendTelegramMessage(chatId, "❌ User này đã là user thường rồi!");
+          return NextResponse.json({ ok: true });
+        }
+
+        // Check if this is the only admin
+        const allUsers = await getAllUsers();
+        const adminCount = allUsers.filter(u => u.role === 'admin').length;
+        
+        if (adminCount <= 1) {
+          await sendTelegramMessage(chatId, "❌ Không thể hạ cấp admin cuối cùng! Phải có ít nhất 1 admin.");
+          return NextResponse.json({ ok: true });
+        }
+
+        await updateUser(Number(targetUserId), { role: 'user' });
+        
+        const successMsg = `✅ **Hạ cấp thành công!**\n\n` +
+          `👤 User: ${targetUser.firstName || 'N/A'} (@${targetUser.username || 'N/A'})\n` +
+          `🆔 ID: \`${targetUserId}\`\n` +
+          `👤 Vai trò mới: **User**`;
+        
+        await sendTelegramMessage(chatId, successMsg);
+      } catch (error) {
+        await sendTelegramMessage(chatId, "❌ Không thể hạ cấp user.");
+      }
       return NextResponse.json({ ok: true });
     }
     
@@ -786,7 +970,12 @@ export async function POST(req: NextRequest) {
       userInfo += `🏷️ **Username:** ${username}\n`;
       userInfo += `🆔 **User ID:** \`${userId}\`\n`;
       userInfo += `💬 **Chat ID:** \`${chatId}\`\n`;
-      userInfo += `👑 **Admin:** ${isAdmin(userId) ? '✅ Có' : '❌ Không'}\n`;
+      userInfo += `👑 **Vai trò:** ${currentUser?.role === 'admin' ? '✅ Admin' : '👤 User'}\n`;
+      
+      if (currentUser) {
+        userInfo += `📅 **Tham gia:** ${currentUser.createdAt.toLocaleDateString('vi-VN')}\n`;
+        userInfo += `⏰ **Hoạt động cuối:** ${currentUser.lastActive.toLocaleDateString('vi-VN')}\n`;
+      }
       
       await sendTelegramMessage(chatId, userInfo);
       return NextResponse.json({ ok: true });
@@ -794,41 +983,42 @@ export async function POST(req: NextRequest) {
     
     // Xử lý lệnh stats (chỉ admin)
     if (/^\/stats/.test(text)) {
-      if (!isAdmin(userId)) {
+      if (currentUser?.role !== 'admin') {
         await sendTelegramMessage(chatId, "❌ Bạn không có quyền sử dụng lệnh này!");
         return NextResponse.json({ ok: true });
       }
       
       try {
-        if (mongodb.isAvailable()) {
-          // Đảm bảo kết nối database
-          await mongodb.connect();
-          
-          // Lấy thống kê từ database
-          const db = mongodb.getDb();
-          const collection = db.collection('chat_contexts');
-          
-          const totalChats = await collection.countDocuments();
-          const totalMessages = await collection.aggregate([
-            { $project: { messageCount: { $size: "$messages" } } },
-            { $group: { _id: null, total: { $sum: "$messageCount" } } }
-          ]).toArray();
-          
-          const recentChats = await collection.countDocuments({
-            lastUpdated: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
-          });
+        const allUsers = await getAllUsers();
+        const adminUsers = allUsers.filter(u => u.role === 'admin');
+        const regularUsers = allUsers.filter(u => u.role === 'user');
+        
+        // Get recent activity (last 24 hours)
+        const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const recentUsers = allUsers.filter(u => u.lastActive > yesterday);
+        
+        // Get users with daily weather enabled
+        const dailyWeatherUsers = allUsers.filter(u => u.preferences.dailyWeather);
+        
+        // Get users with location saved
+        const usersWithLocation = allUsers.filter(u => u.location);
           
           let statsInfo = `📊 **Thống kê hệ thống**\n\n`;
-          statsInfo += `💬 Tổng số cuộc trò chuyện: ${totalChats}\n`;
-          statsInfo += `📝 Tổng số tin nhắn: ${totalMessages[0]?.total || 0}\n`;
-          statsInfo += `🔥 Cuộc trò chuyện hoạt động (24h): ${recentChats}\n`;
-          statsInfo += `🤖 MongoDB: ✅ Kết nối\n`;
-          statsInfo += `⏰ Thời gian: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}\n`;
+        statsInfo += `👥 **Người dùng:**\n`;
+        statsInfo += `• Tổng số: ${allUsers.length}\n`;
+        statsInfo += `• Admins: ${adminUsers.length}\n`;
+        statsInfo += `• Users thường: ${regularUsers.length}\n`;
+        statsInfo += `• Hoạt động (24h): ${recentUsers.length}\n\n`;
+        
+        statsInfo += `🌤️ **Tính năng thời tiết:**\n`;
+        statsInfo += `• Bật thông báo hàng ngày: ${dailyWeatherUsers.length}\n`;
+        statsInfo += `• Đã lưu vị trí: ${usersWithLocation.length}\n\n`;
+        
+        statsInfo += `🤖 **Hệ thống:**\n`;
+        statsInfo += `• Database: ✅ Kết nối\n`;
+        statsInfo += `• Thời gian: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}\n`;
           
           await sendTelegramMessage(chatId, statsInfo);
-        } else {
-          await sendTelegramMessage(chatId, "❌ MongoDB không khả dụng để lấy thống kê.");
-        }
       } catch (error) {
         console.error('Error getting stats:', error);
         await sendTelegramMessage(chatId, "❌ Không thể lấy thống kê hệ thống.");
@@ -838,7 +1028,7 @@ export async function POST(req: NextRequest) {
     
     // Xử lý lệnh broadcast (chỉ admin)
     if (/^\/broadcast\s+/.test(text)) {
-      if (!isAdmin(userId)) {
+      if (currentUser?.role !== 'admin') {
         await sendTelegramMessage(chatId, "❌ Bạn không có quyền sử dụng lệnh này!");
         return NextResponse.json({ ok: true });
       }
@@ -851,25 +1041,18 @@ export async function POST(req: NextRequest) {
       }
       
       try {
-        if (mongodb.isAvailable()) {
-          // Đảm bảo kết nối database
-          await mongodb.connect();
-          
-          const db = mongodb.getDb();
-          const collection = db.collection('chat_contexts');
-          
-          // Lấy tất cả chatId
-          const chats = await collection.find({}, { projection: { chatId: 1 } }).toArray();
+        // Lấy tất cả users từ database
+        const allUsers = await getAllUsers();
           
           let successCount = 0;
           let failCount = 0;
           
           const broadcastText = `📢 **Thông báo từ Admin:**\n\n${broadcastMessage}`;
           
-          // Gửi tin nhắn tới tất cả chats
-          for (const chat of chats) {
+        // Gửi tin nhắn tới tất cả users
+        for (const user of allUsers) {
             try {
-              await sendTelegramMessage(parseInt(chat.chatId), broadcastText);
+            await sendTelegramMessage(user.telegramId, broadcastText);
               successCount++;
               // Delay để tránh rate limit
               await new Promise(resolve => setTimeout(resolve, 100));
@@ -878,10 +1061,7 @@ export async function POST(req: NextRequest) {
             }
           }
           
-          await sendTelegramMessage(chatId, `✅ **Broadcast hoàn thành!**\n\n📤 Gửi thành công: ${successCount}\n❌ Gửi thất bại: ${failCount}\n📊 Tổng: ${chats.length} chats`);
-        } else {
-          await sendTelegramMessage(chatId, "❌ MongoDB không khả dụng để thực hiện broadcast.");
-        }
+        await sendTelegramMessage(chatId, `✅ **Broadcast hoàn thành!**\n\n📤 Gửi thành công: ${successCount}\n❌ Gửi thất bại: ${failCount}\n📊 Tổng: ${allUsers.length} users`);
       } catch (error) {
         console.error('Error broadcasting:', error);
         await sendTelegramMessage(chatId, "❌ Không thể thực hiện broadcast.");
@@ -891,7 +1071,7 @@ export async function POST(req: NextRequest) {
     
     // Xử lý lệnh test daily weather (chỉ admin)
     if (/^\/testdaily/.test(text)) {
-      if (!isAdmin(userId)) {
+      if (currentUser?.role !== 'admin') {
         await sendTelegramMessage(chatId, "❌ Bạn không có quyền sử dụng lệnh này!");
         return NextResponse.json({ ok: true });
       }
@@ -1012,15 +1192,12 @@ export async function POST(req: NextRequest) {
 
       // Nếu không có tên thành phố, kiểm tra vị trí đã lưu
       try {
-        await mongodb.connect();
-        const savedLocation = await getUserLocation(String(message.from?.id));
-        
-        if (savedLocation) {
+        if (currentUser?.location) {
           await sendTypingAction(chatId);
-          const locationName = formatUserLocationName(savedLocation);
+          const locationName = currentUser.location.city || `${currentUser.location.latitude.toFixed(4)}, ${currentUser.location.longitude.toFixed(4)}`;
           await sendTelegramMessage(chatId, `🌤️ Đang lấy thông tin thời tiết cho vị trí đã lưu: ${locationName}...`);
           
-          const weatherData = await getWeatherData(savedLocation.latitude, savedLocation.longitude);
+          const weatherData = await getWeatherData(currentUser.location.latitude, currentUser.location.longitude);
           
           if (weatherData) {
             const weatherMessage = formatWeatherMessage(weatherData, locationName);
@@ -1080,15 +1257,12 @@ export async function POST(req: NextRequest) {
       
       // Nếu không có tên thành phố, kiểm tra vị trí đã lưu
       try {
-        await mongodb.connect();
-        const savedLocation = await getUserLocation(String(message.from?.id));
-        
-        if (savedLocation) {
+        if (currentUser?.location) {
           await sendTypingAction(chatId);
-          const locationName = formatUserLocationName(savedLocation);
+          const locationName = currentUser.location.city || `${currentUser.location.latitude.toFixed(4)}, ${currentUser.location.longitude.toFixed(4)}`;
           await sendTelegramMessage(chatId, `🌤️ Đang lấy dự báo thời tiết 5 ngày cho vị trí đã lưu: ${locationName}...`);
           
-          const forecastData = await getWeatherForecast(savedLocation.latitude, savedLocation.longitude);
+          const forecastData = await getWeatherForecast(currentUser.location.latitude, currentUser.location.longitude);
           
           if (forecastData) {
             const forecastMessage = formatForecastMessage(forecastData, locationName);
@@ -1119,16 +1293,13 @@ export async function POST(req: NextRequest) {
     // Xử lý lệnh quản lý vị trí
     if (/^\/location/.test(text)) {
       try {
-        await mongodb.connect();
-        const savedLocation = await getUserLocation(String(message.from?.id));
-        
-        if (savedLocation) {
-          const locationName = formatUserLocationName(savedLocation);
+        if (currentUser?.location) {
           await sendTelegramMessage(
             chatId,
             `📍 <b>Vị trí đã lưu:</b>\n\n` +
-            `🌍 <b>Địa điểm:</b> ${locationName}\n` +
-            `📐 <b>Tọa độ:</b> ${savedLocation.latitude.toFixed(4)}, ${savedLocation.longitude.toFixed(4)}\n\n` +
+            `🏙️ <b>Thành phố:</b> ${currentUser.location.city || 'Không rõ'}\n` +
+            `🌍 <b>Quốc gia:</b> ${currentUser.location.country || 'Không rõ'}\n` +
+            `📐 <b>Tọa độ:</b> ${currentUser.location.latitude.toFixed(4)}, ${currentUser.location.longitude.toFixed(4)}\n\n` +
             `💡 <i>Sử dụng /weather hoặc /forecast để xem thời tiết cho vị trí này</i>\n\n` +
             `🔄 <i>Để cập nhật vị trí, chia sẻ vị trí mới bất kỳ lúc nào!</i>`
           );
@@ -1156,12 +1327,19 @@ export async function POST(req: NextRequest) {
       const subCommand = text.replace(/^\/daily\s*/, '').trim().toLowerCase();
       
       try {
-        await mongodb.connect();
-        const telegramId = String(message.from?.id);
+        if (!userId || !currentUser) {
+          await sendTelegramMessage(chatId, "❌ Không thể xác định người dùng!");
+          return NextResponse.json({ ok: true });
+        }
         
         if (subCommand === 'on' || subCommand === 'bật') {
           // Bật thông báo hàng ngày
-          await updateUserPreferences(telegramId, { dailyWeatherNotification: true });
+          await updateUser(userId, { 
+            preferences: { 
+              ...currentUser.preferences, 
+              dailyWeather: true 
+            } 
+          });
           await sendTelegramMessage(
             chatId,
             "✅ <b>Đã bật thông báo thời tiết hàng ngày!</b>\n\n" +
@@ -1172,7 +1350,12 @@ export async function POST(req: NextRequest) {
           );
         } else if (subCommand === 'off' || subCommand === 'tắt') {
           // Tắt thông báo hàng ngày
-          await updateUserPreferences(telegramId, { dailyWeatherNotification: false });
+          await updateUser(userId, { 
+            preferences: { 
+              ...currentUser.preferences, 
+              dailyWeather: false 
+            } 
+          });
           await sendTelegramMessage(
             chatId,
             "🔕 <b>Đã tắt thông báo thời tiết hàng ngày!</b>\n\n" +
@@ -1181,17 +1364,16 @@ export async function POST(req: NextRequest) {
           );
         } else if (subCommand === 'status' || subCommand === 'trạng thái' || subCommand === '') {
           // Kiểm tra trạng thái
-          const user = await getUserById(telegramId);
-          const isEnabled = user?.preferences?.dailyWeatherNotification || false;
-          const hasLocation = user?.location?.latitude && user?.location?.longitude;
+          const isEnabled = currentUser.preferences.dailyWeather;
+          const hasLocation = currentUser.location?.latitude && currentUser.location?.longitude;
           
           let statusMessage = `📊 <b>Trạng thái thông báo hàng ngày:</b>\n\n`;
           statusMessage += `🔔 <b>Thông báo:</b> ${isEnabled ? '✅ Đã bật' : '❌ Đã tắt'}\n`;
           statusMessage += `📍 <b>Vị trí:</b> ${hasLocation ? '✅ Đã lưu' : '❌ Chưa lưu'}\n`;
           statusMessage += `⏰ <b>Thời gian:</b> 6:00 sáng mỗi ngày\n\n`;
           
-          if (isEnabled && hasLocation && user.location) {
-            const locationName = formatUserLocationName(user.location);
+          if (isEnabled && hasLocation && currentUser.location) {
+            const locationName = formatUserLocationName(currentUser.location);
             statusMessage += `🌍 <b>Vị trí hiện tại:</b> ${locationName}\n\n`;
             statusMessage += `✅ <i>Mọi thứ đã sẵn sàng! Bạn sẽ nhận thông báo thời tiết hàng ngày.</i>`;
           } else if (isEnabled && !hasLocation) {
@@ -1231,15 +1413,20 @@ export async function POST(req: NextRequest) {
       await sendTelegramMessage(chatId, "📍 Đã nhận vị trí! Đang lấy thông tin thời tiết...");
       
       try {
-        await mongodb.connect();
+        if (!userId) {
+          await sendTelegramMessage(chatId, "❌ Không thể xác định người dùng!");
+          return NextResponse.json({ ok: true });
+        }
+
         const location = {
           latitude: message.location.latitude,
-          longitude: message.location.longitude
+          longitude: message.location.longitude,
+          city: undefined, // Will be filled by reverse geocoding if needed
+          country: undefined
         };
         
-        // Lưu vị trí vào user collection
-        const telegramId = String(message.from?.id);
-        await saveUserLocation(telegramId, location);
+        // Lưu vị trí vào user database
+        await updateUser(userId, { location });
         
         // Lấy thời tiết ngay lập tức
         const weatherData = await getWeatherData(location.latitude, location.longitude);
@@ -1315,22 +1502,22 @@ export async function POST(req: NextRequest) {
       await sendTelegramMessage(chatId, message);
     }
 
-    // 7. Lấy ngữ cảnh hội thoại từ MongoDB
+    // 7. Lấy ngữ cảnh hội thoại từ database
     let context: Content[] = [];
 
     try {
-      if (mongodb.isAvailable()) {
-        const savedContext = await mongodb.getContext(chatId.toString());
-        if (savedContext && Array.isArray(savedContext)) {
+      if (userId) {
+        const savedMessages = await getMemory(userId);
+        if (savedMessages && Array.isArray(savedMessages)) {
           // Chuyển đổi về format Content cho Gemini API
-          context = savedContext.map(msg => ({
-            role: msg.role,
-            parts: msg.parts
+          context = savedMessages.map(msg => ({
+            role: msg.role === 'user' ? 'user' : 'model',
+            parts: [{ text: msg.content }]
           }));
         }
       }
     } catch {
-      console.log("MongoDB không khả dụng, bỏ qua ngữ cảnh");
+      console.log("Không thể lấy ngữ cảnh từ database");
     }
 
     // 7. Chuẩn bị và gọi Gemini AI
@@ -1427,41 +1614,40 @@ export async function POST(req: NextRequest) {
       clearTimeout(timeoutId);
     }
 
-    // 8. Lưu ngữ cảnh mới vào MongoDB với timestamp (không lưu ảnh để tiết kiệm storage)
-    const now = Date.now();
+    // 8. Lưu ngữ cảnh mới vào database (không lưu ảnh để tiết kiệm storage)
     
-    // Lấy context hiện tại với timestamp
+    // Lấy context hiện tại
     let currentContext: ContextMessage[] = [];
     try {
-      if (mongodb.isAvailable()) {
-        currentContext = await mongodb.getContext(chatId.toString());
+      if (userId) {
+        currentContext = await getMemory(userId);
       }
     } catch {
       console.log("Không thể lấy context hiện tại");
     }
     
-    // Thêm tin nhắn mới với timestamp
+    // Thêm tin nhắn mới
     const newContextMessages: ContextMessage[] = [
       ...currentContext,
       { 
         role: "user", 
-        parts: [{ text: text || (hasPhoto ? "[Đã gửi ảnh]" : "") }],
-        timestamp: now
+        content: text || (hasPhoto ? "[Đã gửi ảnh]" : ""),
+        timestamp: new Date()
       },
       { 
-        role: "model", 
-        parts: [{ text: reply }],
-        timestamp: now
+        role: "assistant", 
+        content: reply,
+        timestamp: new Date()
       },
     ];
     
-    // Lưu context mới vào MongoDB
+    // Lưu context mới vào database
     try {
-      if (mongodb.isAvailable()) {
-        await mongodb.saveContext(chatId.toString(), newContextMessages, userId);
+      if (userId) {
+        await saveMemory(userId, newContextMessages);
       }
     } catch {
-      console.log("Không thể lưu ngữ cảnh vào MongoDB");
+      console.log("Không thể lưu ngữ cảnh vào database");
     }
 
     // 9. Gửi phản hồi về Telegram
