@@ -1,4 +1,6 @@
 // Hàm chuyển đổi text thành voice sử dụng Google Translate TTS (miễn phí)
+export const MAX_GOOGLE_TRANSLATE_TTS_LEN = 200; // Giới hạn thực tế của translate_tts
+
 export async function textToSpeech(text: string): Promise<Buffer | null> {
   try {
     // Làm sạch text để tránh lỗi TTS
@@ -9,36 +11,19 @@ export async function textToSpeech(text: string): Promise<Buffer | null> {
       .replace(/\n{3,}/g, '\n\n') // Giảm line breaks
       .trim();
 
-    // Giới hạn độ dài text (Google Translate TTS có giới hạn ~100 ký tự mỗi request)
-    const maxLength = 100;
-    let finalText = cleanText;
-    
-    if (cleanText.length > maxLength) {
-      // Cắt text thông minh tại dấu câu gần nhất
-      const truncated = cleanText.substring(0, maxLength);
-      const lastPunctuation = Math.max(
-        truncated.lastIndexOf('.'),
-        truncated.lastIndexOf('!'),
-        truncated.lastIndexOf('?'),
-        truncated.lastIndexOf(',')
-      );
-      
-      if (lastPunctuation > maxLength * 0.7) {
-        // Nếu có dấu câu gần cuối, cắt tại đó
-        finalText = truncated.substring(0, lastPunctuation + 1);
-      } else {
-        // Nếu không, cắt tại từ cuối cùng
-        const lastSpace = truncated.lastIndexOf(' ');
-        finalText = lastSpace > maxLength * 0.7 
-          ? truncated.substring(0, lastSpace) + "..."
-          : truncated + "...";
-      }
-    }
-
-    if (!finalText || finalText.trim().length === 0) {
+    // Không cắt xén: chỉ tạo voice nếu trong giới hạn khả thi của Google Translate TTS
+    if (cleanText.length === 0) {
       console.log("Text rỗng, không thể tạo voice");
       return null;
     }
+    if (cleanText.length > MAX_GOOGLE_TRANSLATE_TTS_LEN) {
+      console.log("Text quá dài cho Google Translate TTS (vượt quá giới hạn)");
+      return null;
+    }
+
+    const finalText = cleanText;
+
+    // finalText đã được đảm bảo hợp lệ phía trên
 
     console.log("Đang tạo voice từ text bằng Google Translate TTS...");
     
