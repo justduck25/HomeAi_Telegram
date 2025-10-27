@@ -10,7 +10,7 @@ import {
   getAllUsers,
   type User 
 } from "@/lib/database";
-import { textToSpeech, sendVoiceMessage, sendRecordingAction, isTextSuitableForTTS } from "@/lib/text-to-speech";
+import { textToSpeech, sendVoiceMessage, sendRecordingAction, isTextSuitableForTTS, MAX_GOOGLE_TRANSLATE_TTS_LEN } from "@/lib/text-to-speech";
 import { getWeatherData, formatWeatherMessage, getWeatherForecast, formatForecastMessage, getWeatherByCoordinates } from "@/lib/weather";
 
 // Sử dụng Node.js runtime để tương thích với SDK
@@ -577,6 +577,53 @@ function detectMimeType(buffer: Buffer): string {
   return "image/jpeg"; // Default fallback
 }
 
+// Phát hiện ý định truy vấn database từ câu hỏi tự nhiên của người dùng
+type DbIntent =
+  | { type: 'user_daily_status' }
+  | { type: 'user_location' }
+  | { type: 'user_memory' }
+  | { type: 'system_user_count' }
+  | { type: 'system_admin_list' }
+  | { type: 'system_daily_on_count' }
+  | { type: 'system_users_with_location_count' }
+  | { type: 'system_recent_active' };
+
+function detectDbQueryIntent(text: string): DbIntent | null {
+  const t = text.toLowerCase();
+
+  // Ý định liên quan tới user hiện tại
+  if (
+    /(daily|thông báo\s+hàng\s+ngày|dự báo\s+hàng\s+ngày).*(bật|tắt|trạng thái|status)|\btrạng thái\b.*(daily|thông báo)/.test(t)
+  ) {
+    return { type: 'user_daily_status' };
+  }
+  if (/(vị trí|location|tọa độ|toạ độ|thành phố|city).*(của tôi|mình|đang lưu|đã lưu)|\b(vị trí|location)\b\??$/.test(t)) {
+    return { type: 'user_location' };
+  }
+  if (/(bộ nhớ|memory|lưu.*bao nhiêu|đang lưu|context|ngữ cảnh)/.test(t)) {
+    return { type: 'user_memory' };
+  }
+
+  // Ý định hệ thống (yêu cầu quyền admin)
+  if (/(bao nhiêu|số).*(người dùng|user)s?/i.test(t)) {
+    return { type: 'system_user_count' };
+  }
+  if (/(admin).*(là ai|danh sách|list|ai)/.test(t)) {
+    return { type: 'system_admin_list' };
+  }
+  if (/(bao nhiêu|số).*(bật|đang bật).*(daily|thông báo\s+hàng\s+ngày)/.test(t)) {
+    return { type: 'system_daily_on_count' };
+  }
+  if (/(bao nhiêu|số).*(đã lưu|có).*(vị trí|location)/.test(t)) {
+    return { type: 'system_users_with_location_count' };
+  }
+  if (/(ai|những ai|bao nhiêu).*(hoạt động|active).*(hôm nay|24h|24 giờ|trong ngày)/.test(t)) {
+    return { type: 'system_recent_active' };
+  }
+
+  return null;
+}
+
 
 // Hàm gửi typing indicator
 async function sendTypingAction(chatId: number) {
@@ -844,7 +891,7 @@ export async function POST(req: NextRequest) {
         adminInfo += `• \`/testdaily\` - Test thông báo thời tiết hàng ngày\n`;
       
       await sendTelegramMessage(chatId, adminInfo);
-      } catch (error) {
+      } catch {
         await sendTelegramMessage(chatId, "❌ Không thể tải thông tin admin panel.");
       }
       return NextResponse.json({ ok: true });
@@ -890,7 +937,7 @@ export async function POST(req: NextRequest) {
         usersList += `💡 Sử dụng \`/demote <user_id>\` để hạ cấp admin thành user`;
         
         await sendTelegramMessage(chatId, usersList);
-      } catch (error) {
+      } catch {
         await sendTelegramMessage(chatId, "❌ Không thể tải danh sách người dùng.");
       }
       return NextResponse.json({ ok: true });
@@ -931,7 +978,7 @@ export async function POST(req: NextRequest) {
           `👑 Vai trò mới: **Admin**`;
         
         await sendTelegramMessage(chatId, successMsg);
-      } catch (error) {
+      } catch {
         await sendTelegramMessage(chatId, "❌ Không thể thăng cấp user.");
       }
       return NextResponse.json({ ok: true });
@@ -981,7 +1028,7 @@ export async function POST(req: NextRequest) {
           `👤 Vai trò mới: **User**`;
         
         await sendTelegramMessage(chatId, successMsg);
-      } catch (error) {
+      } catch {
         await sendTelegramMessage(chatId, "❌ Không thể hạ cấp user.");
       }
       return NextResponse.json({ ok: true });
@@ -1523,6 +1570,126 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    // 4.1. Xử lý câu hỏi tự nhiên cần đọc database (tăng nhận thức hệ thống)
+    const dbIntent = text ? detectDbQueryIntent(text) : null;
+    if (dbIntent) {
+      try {
+        // Các intent của user hiện tại (không cần quyền admin)
+        if (dbIntent.type === 'user_daily_status') {
+          if (!currentUser || !userId) {
+            await sendTelegramMessage(chatId, "❌ Không thể xác định người dùng!");
+            return NextResponse.json({ ok: true });
+          }
+          const isEnabled = currentUser.preferences?.dailyWeather ?? false;
+          const hasLocation = !!(currentUser.location?.latitude && currentUser.location?.longitude);
+          let statusMessage = `📊 Trạng thái thông báo thời tiết hàng ngày\n\n`;
+          statusMessage += `🔔 Thông báo: ${isEnabled ? '✅ Đã bật' : '❌ Đã tắt'}\n`;
+          statusMessage += `📍 Vị trí: ${hasLocation ? '✅ Đã lưu' : '❌ Chưa lưu'}\n`;
+          statusMessage += `⏰ Thời gian: 6:00 sáng mỗi ngày (UTC+7)\n\n`;
+          if (isEnabled && hasLocation && currentUser.location) {
+            const locationName = formatUserLocationName(currentUser.location);
+            statusMessage += `🌍 Vị trí hiện tại: ${locationName}\n\n`;
+            statusMessage += `✅ Mọi thứ đã sẵn sàng!`;
+          } else if (isEnabled && !hasLocation) {
+            statusMessage += `⚠️ Cần chia sẻ vị trí để nhận thông báo. Sử dụng /location`;
+          } else {
+            statusMessage += `💡 Dùng /daily on để bật thông báo`;
+          }
+          await sendTelegramMessage(chatId, statusMessage);
+          return NextResponse.json({ ok: true });
+        }
+
+        if (dbIntent.type === 'user_location') {
+          if (currentUser?.location) {
+            await sendTelegramMessage(
+              chatId,
+              `📍 Vị trí đã lưu\n\n` +
+              `🏙️ Thành phố: ${currentUser.location.city || 'Không rõ'}\n` +
+              `🌍 Quốc gia: ${currentUser.location.country || 'Không rõ'}\n` +
+              `📐 Tọa độ: ${currentUser.location.latitude.toFixed(4)}, ${currentUser.location.longitude.toFixed(4)}\n\n` +
+              `💡 Dùng /weather hoặc /forecast để xem thời tiết`
+            );
+          } else {
+            await requestLocationMessage(
+              String(chatId),
+              "📍 Bạn chưa lưu vị trí. Nhấn nút bên dưới để chia sẻ vị trí hiện tại!"
+            );
+          }
+          return NextResponse.json({ ok: true });
+        }
+
+        if (dbIntent.type === 'user_memory') {
+          if (!userId) {
+            await sendTelegramMessage(chatId, "❌ Không thể kiểm tra bộ nhớ.");
+            return NextResponse.json({ ok: true });
+          }
+          const messages = await getMemory(userId);
+          let memoryInfo = `🧠 Bộ nhớ hội thoại\n\n`;
+          memoryInfo += `📊 Tổng tin nhắn: ${messages.length}\n`;
+          const userMessages = messages.filter(m => m.role === 'user').length;
+          memoryInfo += `👤 Tin nhắn của bạn: ${userMessages}\n`;
+          if (messages.length > 0) {
+            const oldestMessage = messages[0];
+            const ageHours = (Date.now() - oldestMessage.timestamp.getTime()) / (1000 * 60 * 60);
+            memoryInfo += `⏰ Tin nhắn cũ nhất: ${ageHours.toFixed(1)} tiếng trước\n`;
+          }
+          memoryInfo += `\n💡 Bộ nhớ được lưu trong 12 tiếng.`;
+          await sendTelegramMessage(chatId, memoryInfo);
+          return NextResponse.json({ ok: true });
+        }
+
+        // Các intent hệ thống – cần quyền admin
+        const requireAdmin = [
+          'system_user_count',
+          'system_admin_list',
+          'system_daily_on_count',
+          'system_users_with_location_count',
+          'system_recent_active'
+        ] as const;
+
+        if (requireAdmin.some(t => t === dbIntent.type)) {
+          if (currentUser?.role !== 'admin') {
+            await sendTelegramMessage(chatId, '❌ Bạn không có quyền xem thông tin hệ thống.');
+            return NextResponse.json({ ok: true });
+          }
+          const allUsers = await getAllUsers();
+          if (dbIntent.type === 'system_user_count') {
+            await sendTelegramMessage(chatId, `👥 Tổng số người dùng: ${allUsers.length}`);
+            return NextResponse.json({ ok: true });
+          }
+          if (dbIntent.type === 'system_admin_list') {
+            const admins = allUsers.filter(u => u.role === 'admin');
+            let msg = `👑 Danh sách Admin (${admins.length}):\n\n`;
+            for (const a of admins) {
+              msg += `• ${a.firstName || 'N/A'} (@${a.username || 'N/A'}) – ID: \`${a.telegramId}\`\n`;
+            }
+            await sendTelegramMessage(chatId, msg);
+            return NextResponse.json({ ok: true });
+          }
+          if (dbIntent.type === 'system_daily_on_count') {
+            const enabled = allUsers.filter(u => u.preferences?.dailyWeather).length;
+            await sendTelegramMessage(chatId, `🌤️ Bật thông báo hàng ngày: ${enabled}`);
+            return NextResponse.json({ ok: true });
+          }
+          if (dbIntent.type === 'system_users_with_location_count') {
+            const withLoc = allUsers.filter(u => u.location?.latitude && u.location?.longitude).length;
+            await sendTelegramMessage(chatId, `📍 Người dùng đã lưu vị trí: ${withLoc}`);
+            return NextResponse.json({ ok: true });
+          }
+          if (dbIntent.type === 'system_recent_active') {
+            const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            const recent = allUsers.filter(u => u.lastActive > cutoff);
+            await sendTelegramMessage(chatId, `⏱️ Người dùng hoạt động 24h qua: ${recent.length}`);
+            return NextResponse.json({ ok: true });
+          }
+        }
+      } catch (err) {
+        console.error('DB-aware intent handling error:', err);
+        await sendTelegramMessage(chatId, '❌ Có lỗi khi truy vấn dữ liệu hệ thống.');
+        return NextResponse.json({ ok: true });
+      }
+    }
+
     // Bỏ qua tin nhắn trống (không có text, không có ảnh, và không có voice)
     if (!text && !hasPhoto && !hasVoice) {
       return NextResponse.json({ ok: true });
@@ -1726,21 +1893,19 @@ export async function POST(req: NextRequest) {
       try {
         await sendRecordingAction(chatId);
         
-        // Kiểm tra xem text có bị rút gọn không
+        // Thông báo nếu không khả thi với Google Translate TTS
         const cleanText = reply
-          .replace(/[*_`~]/g, '') // Loại bỏ markdown formatting
-          .replace(/#{1,6}\s/g, '') // Loại bỏ markdown headers
-          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Chuyển links thành text
-          .replace(/\n{3,}/g, '\n\n') // Giảm line breaks
+          .replace(/[*_`~]/g, '')
+          .replace(/#{1,6}\s/g, '')
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+          .replace(/\n{3,}/g, '\n\n')
           .trim();
-        
-        const maxLength = 100;
-        const willBeTruncated = cleanText.length > maxLength;
-        
-        if (willBeTruncated) {
-          await sendTelegramMessage(chatId, "🔊 Đang tạo voice (text đã được rút gọn do giới hạn TTS)...");
+
+        if (cleanText.length > MAX_GOOGLE_TRANSLATE_TTS_LEN) {
+          await sendTelegramMessage(chatId, `❗ Văn bản quá dài để tạo voice bằng Google Translate TTS (>${MAX_GOOGLE_TRANSLATE_TTS_LEN} ký tự). Hãy dùng câu ngắn hơn hoặc chia nhỏ.`);
+          return NextResponse.json({ ok: true });
         }
-        
+
         const audioBuffer = await textToSpeech(reply);
         if (audioBuffer) {
           const voiceSent = await sendVoiceMessage(chatId, audioBuffer);
@@ -1748,7 +1913,7 @@ export async function POST(req: NextRequest) {
             await sendTelegramMessage(chatId, "❌ Không thể tạo voice response. Vui lòng thử lại!");
           }
         } else {
-          await sendTelegramMessage(chatId, "❌ Không thể chuyển đổi text thành voice. Text có thể quá dài hoặc không phù hợp!");
+          await sendTelegramMessage(chatId, "❌ Không thể chuyển đổi text thành voice. Văn bản có thể không phù hợp cho TTS.");
         }
       } catch (error) {
         console.error("Lỗi tạo voice response:", error);
