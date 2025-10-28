@@ -13,7 +13,104 @@ interface WeatherData {
   uv_index?: number;
 }
 
-// WeatherAPI.com Response Interfaces
+// Open-Meteo Response Interfaces
+interface OpenMeteoCurrentResponse {
+  latitude: number;
+  longitude: number;
+  generationtime_ms: number;
+  utc_offset_seconds: number;
+  timezone: string;
+  timezone_abbreviation: string;
+  elevation: number;
+  current_units: {
+    time: string;
+    interval: string;
+    temperature_2m: string;
+    relative_humidity_2m: string;
+    apparent_temperature: string;
+    is_day: string;
+    precipitation: string;
+    weather_code: string;
+    cloud_cover: string;
+    pressure_msl: string;
+    surface_pressure: string;
+    wind_speed_10m: string;
+    wind_direction_10m: string;
+    wind_gusts_10m: string;
+    uv_index: string;
+    visibility: string;
+  };
+  current: {
+    time: string;
+    interval: number;
+    temperature_2m: number;
+    relative_humidity_2m: number;
+    apparent_temperature: number;
+    is_day: number;
+    precipitation: number;
+    weather_code: number;
+    cloud_cover: number;
+    pressure_msl: number;
+    surface_pressure: number;
+    wind_speed_10m: number;
+    wind_direction_10m: number;
+    wind_gusts_10m: number;
+    uv_index: number;
+    visibility: number;
+  };
+}
+
+interface OpenMeteoForecastResponse {
+  latitude: number;
+  longitude: number;
+  generationtime_ms: number;
+  utc_offset_seconds: number;
+  timezone: string;
+  timezone_abbreviation: string;
+  elevation: number;
+  daily_units: {
+    time: string;
+    weather_code: string;
+    temperature_2m_max: string;
+    temperature_2m_min: string;
+    apparent_temperature_max: string;
+    apparent_temperature_min: string;
+    sunrise: string;
+    sunset: string;
+    uv_index_max: string;
+    precipitation_sum: string;
+    rain_sum: string;
+    showers_sum: string;
+    snowfall_sum: string;
+    precipitation_hours: string;
+    precipitation_probability_max: string;
+    wind_speed_10m_max: string;
+    wind_gusts_10m_max: string;
+    wind_direction_10m_dominant: string;
+  };
+  daily: {
+    time: string[];
+    weather_code: number[];
+    temperature_2m_max: number[];
+    temperature_2m_min: number[];
+    apparent_temperature_max: number[];
+    apparent_temperature_min: number[];
+    sunrise: string[];
+    sunset: string[];
+    uv_index_max: number[];
+    precipitation_sum: number[];
+    rain_sum: number[];
+    showers_sum: number[];
+    snowfall_sum: number[];
+    precipitation_hours: number[];
+    precipitation_probability_max: number[];
+    wind_speed_10m_max: number[];
+    wind_gusts_10m_max: number[];
+    wind_direction_10m_dominant: number[];
+  };
+}
+
+// WeatherAPI.com Response Interfaces (Legacy - sẽ xóa sau)
 interface WeatherAPIResponse {
   location: {
     name: string;
@@ -150,7 +247,40 @@ interface WeatherAPIForecastResponse {
 }
 
 
-// Bản đồ mô tả thời tiết từ tiếng Anh sang tiếng Việt cho WeatherAPI.com
+// Bản đồ mô tả thời tiết cho Open-Meteo weather codes
+// Dựa trên WMO Weather interpretation codes (WW)
+const openMeteoWeatherDescriptions: { [key: number]: string } = {
+  0: '☀️ Trời quang đãng',
+  1: '🌤️ Chủ yếu quang đãng',
+  2: '⛅ Có mây một phần',
+  3: '☁️ U ám',
+  45: '🌫️ Sương mù',
+  48: '🌫️ Sương mù đóng băng',
+  51: '🌦️ Mưa phùn nhẹ',
+  53: '🌦️ Mưa phùn vừa',
+  55: '🌦️ Mưa phùn dày đặc',
+  56: '🌨️ Mưa phùn đóng băng nhẹ',
+  57: '🌨️ Mưa phùn đóng băng dày đặc',
+  61: '🌧️ Mưa nhẹ',
+  63: '🌧️ Mưa vừa',
+  65: '🌧️ Mưa to',
+  66: '🌨️ Mưa đóng băng nhẹ',
+  67: '🌨️ Mưa đóng băng nặng',
+  71: '🌨️ Tuyết rơi nhẹ',
+  73: '❄️ Tuyết rơi vừa',
+  75: '❄️ Tuyết rơi nặng',
+  77: '❄️ Hạt tuyết',
+  80: '🌦️ Mưa rào nhẹ',
+  81: '🌧️ Mưa rào vừa',
+  82: '⛈️ Mưa rào nặng',
+  85: '🌨️ Tuyết rào nhẹ',
+  86: '❄️ Tuyết rào nặng',
+  95: '⛈️ Dông nhẹ đến vừa',
+  96: '⛈️ Dông có mưa đá nhẹ',
+  99: '⛈️ Dông có mưa đá nặng'
+};
+
+// Bản đồ mô tả thời tiết từ tiếng Anh sang tiếng Việt cho WeatherAPI.com (Legacy)
 const weatherDescriptions: { [key: string]: string } = {
   // WeatherAPI.com conditions
   'sunny': '☀️ Nắng đẹp',
@@ -320,11 +450,11 @@ export async function reverseGeocodeNominatim(lat: number, lon: number): Promise
 
     // Ưu tiên lấy tên thành phố/thị trấn
     const city = data.address.city || 
-                 data.address.town || 
-                 data.address.village || 
-                 data.address.municipality ||
-                 data.address.county ||
-                 data.address.state;
+                        data.address.town || 
+                        data.address.village || 
+                        data.address.municipality ||
+                        data.address.county ||
+                        data.address.state;
 
     // Lấy tên quốc gia
     const country = data.address.country;
@@ -372,25 +502,30 @@ function getAirQualityDescription(humidity: number, visibility: number): string 
   }
 }
 
-// Hàm lấy thời tiết theo tọa độ với reverse geocoding
+// Hàm lấy thời tiết theo tọa độ với reverse geocoding (sử dụng Open-Meteo)
 export async function getWeatherByCoordinates(lat: number, lon: number): Promise<{ weatherData: WeatherData; cityName: string } | null> {
   try {
-    // Lấy dữ liệu thời tiết
-    const weather = await getWeatherData(lat, lon);
+    // Thử reverse geocoding để lấy tên địa điểm
+    const locationInfo = await reverseGeocodeNominatim(lat, lon);
+    const cityName = locationInfo?.city || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    const locationName = locationInfo?.city && locationInfo?.country 
+      ? `${locationInfo.city}, ${locationInfo.country}`
+      : cityName;
+    
+    // Lấy dữ liệu thời tiết từ Open-Meteo
+    const weather = await getWeatherDataFromOpenMeteo(lat, lon, locationName);
     if (!weather) {
       return null;
     }
 
-    // Thử reverse geocoding để lấy tên địa điểm chính xác hơn
-    const locationName = await reverseGeocode(lat, lon);
-    const cityName = locationName || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
-    
-    // Cập nhật tên trong weather data
-    weather.name = cityName;
+    // Cập nhật country nếu có
+    if (locationInfo?.country) {
+      weather.country = locationInfo.country;
+    }
 
     return {
       weatherData: weather,
-      cityName: cityName
+      cityName: locationName
     };
   } catch (error) {
     console.error('Lỗi khi lấy thời tiết theo tọa độ:', error);
@@ -398,7 +533,52 @@ export async function getWeatherByCoordinates(lat: number, lon: number): Promise
   }
 }
 
-// Hàm lấy thời tiết từ WeatherAPI.com
+// Hàm lấy thời tiết từ Open-Meteo
+export async function getWeatherDataFromOpenMeteo(lat: number, lon: number, locationName?: string): Promise<WeatherData | null> {
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,visibility&timezone=auto`;
+    
+    console.log(`🌤️ Gọi Open-Meteo cho: ${lat}, ${lon}`);
+    
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`Open-Meteo API error: ${response.status}`);
+    }
+
+    const data: OpenMeteoCurrentResponse = await response.json();
+
+    // Lấy mô tả thời tiết từ weather code
+    const description = openMeteoWeatherDescriptions[data.current.weather_code] 
+      || `Mã thời tiết: ${data.current.weather_code}`;
+
+    // Tạo icon URL dựa trên weather code và is_day
+    const isDay = data.current.is_day === 1;
+    const iconCode = getOpenMeteoIcon(data.current.weather_code, isDay);
+
+    console.log(`✅ Open-Meteo thành công: ${lat}, ${lon}`);
+
+    return {
+      name: locationName || `${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+      country: '', // Open-Meteo không trả về country, sẽ lấy từ reverse geocoding
+      temperature: Math.round(data.current.temperature_2m),
+      feels_like: Math.round(data.current.apparent_temperature),
+      humidity: data.current.relative_humidity_2m,
+      pressure: data.current.pressure_msl,
+      description,
+      icon: iconCode,
+      wind_speed: data.current.wind_speed_10m / 3.6, // Convert km/h to m/s
+      wind_deg: data.current.wind_direction_10m,
+      visibility: data.current.visibility * 1000, // Convert km to meters
+      uv_index: data.current.uv_index
+    };
+  } catch (error) {
+    console.error('Lỗi khi lấy dữ liệu thời tiết từ Open-Meteo:', error);
+    throw error;
+  }
+}
+
+// Hàm lấy thời tiết từ WeatherAPI.com (Legacy - sẽ xóa sau)
 export async function getWeatherDataFromWeatherAPI(cityOrLat: string | number, lon?: number): Promise<WeatherData | null> {
   const apiKey = process.env.WEATHERAPI_KEY;
   
@@ -463,8 +643,55 @@ export async function getWeatherDataFromWeatherAPI(cityOrLat: string | number, l
   }
 }
 
-// Hàm lấy thời tiết chính (chỉ dùng WeatherAPI.com)
+// Hàm chuyển đổi Open-Meteo weather code thành icon
+function getOpenMeteoIcon(weatherCode: number, isDay: boolean): string {
+  const dayNight = isDay ? 'd' : 'n';
+  
+  // Mapping weather codes to icon codes (similar to OpenWeatherMap format)
+  const iconMap: { [key: number]: string } = {
+    0: `01${dayNight}`, // Clear sky
+    1: `02${dayNight}`, // Mainly clear
+    2: `03${dayNight}`, // Partly cloudy
+    3: `04${dayNight}`, // Overcast
+    45: `50${dayNight}`, // Fog
+    48: `50${dayNight}`, // Depositing rime fog
+    51: `09${dayNight}`, // Light drizzle
+    53: `09${dayNight}`, // Moderate drizzle
+    55: `09${dayNight}`, // Dense drizzle
+    56: `13${dayNight}`, // Light freezing drizzle
+    57: `13${dayNight}`, // Dense freezing drizzle
+    61: `10${dayNight}`, // Slight rain
+    63: `10${dayNight}`, // Moderate rain
+    65: `10${dayNight}`, // Heavy rain
+    66: `13${dayNight}`, // Light freezing rain
+    67: `13${dayNight}`, // Heavy freezing rain
+    71: `13${dayNight}`, // Slight snow fall
+    73: `13${dayNight}`, // Moderate snow fall
+    75: `13${dayNight}`, // Heavy snow fall
+    77: `13${dayNight}`, // Snow grains
+    80: `09${dayNight}`, // Slight rain showers
+    81: `09${dayNight}`, // Moderate rain showers
+    82: `09${dayNight}`, // Violent rain showers
+    85: `13${dayNight}`, // Slight snow showers
+    86: `13${dayNight}`, // Heavy snow showers
+    95: `11${dayNight}`, // Thunderstorm
+    96: `11${dayNight}`, // Thunderstorm with slight hail
+    99: `11${dayNight}`  // Thunderstorm with heavy hail
+  };
+  
+  return iconMap[weatherCode] || `01${dayNight}`;
+}
+
+// Hàm lấy thời tiết chính (chỉ dùng Open-Meteo)
 export async function getWeatherData(cityOrLat: string | number, lon?: number): Promise<WeatherData | null> {
+  // Nếu có coordinates, dùng Open-Meteo trực tiếp
+  if (typeof cityOrLat === 'number' && lon !== undefined) {
+    return await getWeatherDataFromOpenMeteo(cityOrLat, lon);
+  }
+  
+  // Nếu chỉ có tên thành phố, cần geocoding trước
+  // Tạm thời fallback về WeatherAPI cho đến khi implement geocoding
+  console.log('⚠️ Open-Meteo cần coordinates. Fallback về WeatherAPI cho city name.');
   return await getWeatherDataFromWeatherAPI(cityOrLat, lon);
 }
 
@@ -490,7 +717,30 @@ ${weather.description}
 _Cập nhật lúc ${new Date().toLocaleString('vi-VN')}_`;
 }
 
-// Hàm lấy dự báo thời tiết từ WeatherAPI.com
+// Hàm lấy dự báo thời tiết từ Open-Meteo
+export async function getWeatherForecastFromOpenMeteo(lat: number, lon: number, days: number = 7, locationName?: string): Promise<OpenMeteoForecastResponse | null> {
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,uv_index_max,precipitation_sum,rain_sum,showers_sum,snowfall_sum,precipitation_hours,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant&timezone=auto&forecast_days=${days}`;
+    
+    console.log(`🌤️ Gọi Open-Meteo forecast cho: ${lat}, ${lon}`);
+    
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`Open-Meteo forecast API error: ${response.status}`);
+    }
+
+    const data: OpenMeteoForecastResponse = await response.json();
+    console.log(`✅ Open-Meteo forecast thành công: ${lat}, ${lon}`);
+    
+    return data;
+  } catch (error) {
+    console.error('Lỗi khi lấy dự báo thời tiết từ Open-Meteo:', error);
+    throw error;
+  }
+}
+
+// Hàm lấy dự báo thời tiết từ WeatherAPI.com (Legacy - sẽ xóa sau)
 export async function getWeatherForecastFromWeatherAPI(cityOrLat: string | number, lon?: number, days: number = 5): Promise<WeatherAPIForecastResponse | null> {
   const apiKey = process.env.WEATHERAPI_KEY;
   
@@ -537,22 +787,73 @@ export async function getWeatherForecastFromWeatherAPI(cityOrLat: string | numbe
   }
 }
 
-// Hàm lấy dự báo thời tiết (chỉ dùng WeatherAPI.com)
-export async function getWeatherForecast(cityOrLat: string | number, lon?: number): Promise<WeatherAPIForecastResponse | null> {
+// Hàm lấy dự báo thời tiết (chỉ dùng Open-Meteo)
+export async function getWeatherForecast(cityOrLat: string | number, lon?: number): Promise<OpenMeteoForecastResponse | WeatherAPIForecastResponse | null> {
+  // Nếu có coordinates, dùng Open-Meteo trực tiếp
+  if (typeof cityOrLat === 'number' && lon !== undefined) {
+    return await getWeatherForecastFromOpenMeteo(cityOrLat, lon, 7);
+  }
+  
+  // Nếu chỉ có tên thành phố, cần geocoding trước
+  // Tạm thời fallback về WeatherAPI cho đến khi implement geocoding
+  console.log('⚠️ Open-Meteo cần coordinates. Fallback về WeatherAPI cho city name.');
   return await getWeatherForecastFromWeatherAPI(cityOrLat, lon, 5);
 }
 
 
-// Hàm format forecast message
-export function formatForecastMessage(forecast: WeatherAPIForecastResponse, locationName?: string): string {
-  const city = forecast.location.name;
-  const country = forecast.location.country;
+// Hàm format forecast message cho Open-Meteo
+export function formatOpenMeteoForecastMessage(forecast: OpenMeteoForecastResponse, locationName?: string): string {
+  const displayName = locationName || `${forecast.latitude.toFixed(4)}, ${forecast.longitude.toFixed(4)}`;
+  
+  let message = `🌍 **Dự báo thời tiết 7 ngày tại ${displayName}**\n\n`;
+  
+  for (let i = 0; i < forecast.daily.time.length; i++) {
+    const date = new Date(forecast.daily.time[i]);
+    const dateStr = date.toLocaleDateString('vi-VN');
+    
+    const maxTemp = Math.round(forecast.daily.temperature_2m_max[i]);
+    const minTemp = Math.round(forecast.daily.temperature_2m_min[i]);
+    const weatherCode = forecast.daily.weather_code[i];
+    const description = openMeteoWeatherDescriptions[weatherCode] || `Mã: ${weatherCode}`;
+    
+    const dayName = i === 0 ? 'Hôm nay' : 
+                   i === 1 ? 'Ngày mai' : 
+                   date.toLocaleDateString('vi-VN', { weekday: 'long' });
+    
+    message += `📅 **${dayName} (${dateStr})**\n`;
+    message += `${description}\n`;
+    message += `🌡️ ${minTemp}°C - ${maxTemp}°C\n`;
+    message += `🌧️ Lượng mưa: ${forecast.daily.precipitation_sum[i]}mm\n`;
+    message += `💧 Khả năng mưa: ${forecast.daily.precipitation_probability_max[i]}%\n`;
+    if (forecast.daily.uv_index_max[i] > 0) {
+      message += `☀️ Chỉ số UV: ${forecast.daily.uv_index_max[i]}\n`;
+    }
+    message += `🌬️ Gió: ${forecast.daily.wind_speed_10m_max[i]} km/h\n`;
+    message += `\n`;
+  }
+  
+  message += `_Cập nhật lúc ${new Date().toLocaleString('vi-VN')}_`;
+  
+  return message;
+}
+
+// Hàm format forecast message cho WeatherAPI (Legacy)
+export function formatForecastMessage(forecast: WeatherAPIForecastResponse | OpenMeteoForecastResponse, locationName?: string): string {
+  // Kiểm tra xem đây là OpenMeteo hay WeatherAPI response
+  if ('latitude' in forecast) {
+    return formatOpenMeteoForecastMessage(forecast as OpenMeteoForecastResponse, locationName);
+  }
+  
+  // Legacy WeatherAPI format
+  const weatherApiForecast = forecast as WeatherAPIForecastResponse;
+  const city = weatherApiForecast.location.name;
+  const country = weatherApiForecast.location.country;
   
   const displayName = locationName || `${city}, ${country}`;
   
   let message = `🌍 **Dự báo thời tiết 5 ngày tại ${displayName}**\n\n`;
   
-  forecast.forecast.forecastday.forEach((day, index) => {
+  weatherApiForecast.forecast.forecastday.forEach((day, index) => {
     const date = new Date(day.date);
     const dateStr = date.toLocaleDateString('vi-VN');
     

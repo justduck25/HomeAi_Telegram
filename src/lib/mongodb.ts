@@ -99,7 +99,7 @@ class MongoDB {
       const twelveHoursAgo = Date.now() - (12 * 60 * 60 * 1000);
       const filteredMessages = messages.filter(msg => msg.timestamp > twelveHoursAgo);
 
-      const updateData: any = {
+      const updateData: Partial<ChatContext> = {
         chatId,
         messages: filteredMessages,
         lastUpdated: new Date()

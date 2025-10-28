@@ -1,5 +1,4 @@
 import { MongoClient, Db, Collection } from 'mongodb';
-import { connectToMongoDB } from './mongoose';
 
 // Types
 export interface User {
