@@ -47,9 +47,12 @@ TELEGRAM_SECRET=your_custom_secret_key
 GOOGLE_API_KEY=your_gemini_api_key
 MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/telegram-bot?retryWrites=true&w=majority
 
-# Optional: For web search feature
-GOOGLE_SEARCH_API_KEY=your_google_search_api_key
-GOOGLE_SEARCH_ENGINE_ID=your_search_engine_id
+# Enhanced Search APIs (Optional - for advanced search features)
+# See ENV_SETUP.md for detailed setup instructions
+TAVILY_API_KEY=your_tavily_api_key
+BRAVE_SEARCH_API_KEY=your_brave_search_api_key
+PEXELS_API_KEY=your_pexels_api_key
+UNSPLASH_ACCESS_KEY=your_unsplash_access_key
 
 # Optional: For weather feature
 OPENWEATHER_API_KEY=your_openweathermap_api_key
@@ -73,11 +76,11 @@ OPENWEATHER_API_KEY=your_openweathermap_api_key
 3. Tạo database user và lấy connection string
 4. Copy connection string vào `MONGODB_URI`
 
-#### Google Search API (Tùy chọn - cho tính năng tìm kiếm web)
-1. Xem hướng dẫn chi tiết trong [GOOGLE_SEARCH_SETUP.md](./GOOGLE_SEARCH_SETUP.md)
-2. Tạo Google Custom Search Engine
-3. Lấy API Key và Search Engine ID
-4. Cấu hình vào biến môi trường
+#### Enhanced Search APIs (Tùy chọn - cho tính năng tìm kiếm nâng cao)
+1. Xem hướng dẫn chi tiết trong [ENV_SETUP.md](./ENV_SETUP.md)
+2. Setup Tavily AI, Bing Search, Pexels, và Unsplash APIs
+3. Hệ thống fallback tự động với real-time search
+4. Chất lượng hình ảnh cao từ Pexels/Unsplash
 
 #### OpenWeatherMap API Key (Tùy chọn - cho tính năng thời tiết)
 
@@ -121,9 +124,11 @@ TELEGRAM_SECRET = <your_secret>
 GOOGLE_API_KEY = <your_gemini_key>
 MONGODB_URI = <your_mongodb_connection_string>
 
-# Optional: For web search feature
-GOOGLE_SEARCH_API_KEY = <your_google_search_api_key>
-GOOGLE_SEARCH_ENGINE_ID = <your_search_engine_id>
+# Enhanced Search APIs (Optional)
+TAVILY_API_KEY = <your_tavily_api_key>
+BRAVE_SEARCH_API_KEY = <your_brave_search_api_key>
+PEXELS_API_KEY = <your_pexels_api_key>
+UNSPLASH_ACCESS_KEY = <your_unsplash_access_key>
 ```
 
 ### 4. Deploy

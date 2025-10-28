@@ -19,7 +19,8 @@ if (!BOT_TOKEN) {
 
 if (!WEBHOOK_URL) {
   console.error('❌ Thiếu WEBHOOK_URL trong biến môi trường');
-  console.log('💡 Ví dụ: export WEBHOOK_URL=https://your-app.vercel.app/api/tg');
+  console.log('💡 Ví dụ: export WEBHOOK_URL=https://telegram-cache-worker.your-subdomain.workers.dev');
+  console.log('💡 Hoặc Vercel: export WEBHOOK_URL=https://your-app.vercel.app/api/tg');
   process.exit(1);
 }
 
