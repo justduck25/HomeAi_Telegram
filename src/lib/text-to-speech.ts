@@ -1,59 +1,31 @@
-// Hàm chuyển đổi text thành voice sử dụng Google Translate TTS (miễn phí)
-export const MAX_GOOGLE_TRANSLATE_TTS_LEN = 200; // Giới hạn thực tế của translate_tts
+// Import Edge TTS functions
+import { 
+  edgeTextToSpeech, 
+  edgeTextToSpeechLong, 
+  isTextSuitableForEdgeTTS, 
+  MAX_EDGE_TTS_LEN,
+  VIETNAMESE_VOICES,
+  type VietnameseVoice 
+} from './edge-tts';
 
-export async function textToSpeech(text: string): Promise<Buffer | null> {
+// Sử dụng Edge TTS thay vì Google Translate TTS - KHÔNG CÓ GIỚI HẠN KÝ TỰ!
+export const MAX_GOOGLE_TRANSLATE_TTS_LEN = MAX_EDGE_TTS_LEN; // Backward compatibility
+
+export async function textToSpeech(text: string, voice?: VietnameseVoice): Promise<Buffer | null> {
   try {
-    // Làm sạch text để tránh lỗi TTS
-    const cleanText = text
-      .replace(/[*_`~]/g, '') // Loại bỏ markdown formatting
-      .replace(/#{1,6}\s/g, '') // Loại bỏ markdown headers
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Chuyển links thành text
-      .replace(/\n{3,}/g, '\n\n') // Giảm line breaks
-      .trim();
-
-    // Không cắt xén: chỉ tạo voice nếu trong giới hạn khả thi của Google Translate TTS
-    if (cleanText.length === 0) {
-      console.log("Text rỗng, không thể tạo voice");
+    // Sử dụng Edge TTS - có thể xử lý text rất dài
+    const audioBuffer = await edgeTextToSpeech(text, voice);
+    
+    if (audioBuffer) {
+      console.log("✅ Text-to-speech thành công với Edge TTS");
+      return audioBuffer;
+    } else {
+      console.error("❌ Edge TTS không thể tạo audio");
       return null;
     }
-    if (cleanText.length > MAX_GOOGLE_TRANSLATE_TTS_LEN) {
-      console.log("Text quá dài cho Google Translate TTS (vượt quá giới hạn)");
-      return null;
-    }
-
-    const finalText = cleanText;
-
-    // finalText đã được đảm bảo hợp lệ phía trên
-
-    console.log("Đang tạo voice từ text bằng Google Translate TTS...");
-    
-    // Encode text cho URL
-    const encodedText = encodeURIComponent(finalText);
-    
-    // URL Google Translate TTS API (miễn phí)
-    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=vi&client=tw-ob&q=${encodedText}`;
-    
-    // Gọi Google Translate TTS API
-    const response = await fetch(ttsUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      }
-    });
-    
-    if (!response.ok) {
-      console.error("Lỗi gọi Google Translate TTS:", response.status, response.statusText);
-      return null;
-    }
-
-    // Chuyển response thành buffer
-    const arrayBuffer = await response.arrayBuffer();
-    const audioBuffer = Buffer.from(arrayBuffer);
-
-    console.log("Text-to-speech thành công với Google Translate TTS");
-    return audioBuffer;
     
   } catch (error) {
-    console.error("Lỗi Text-to-Speech:", error);
+    console.error("❌ Lỗi Edge Text-to-Speech:", error);
     return null;
   }
 }
@@ -122,20 +94,28 @@ export async function sendRecordingAction(chatId: number): Promise<void> {
   }
 }
 
-// Hàm kiểm tra xem text có phù hợp cho TTS không
-export function isTextSuitableForTTS(text: string): boolean {
-  const cleanText = text.replace(/[*_`~#\[\]()]/g, '').trim();
-  
-  // Kiểm tra độ dài
-  if (cleanText.length === 0 || cleanText.length > 5000) {
-    return false;
+// Hàm tạo multiple voice messages cho text dài
+export async function textToSpeechLong(text: string, voice?: VietnameseVoice): Promise<Buffer[]> {
+  try {
+    console.log(`🎤 Tạo voice cho text dài: ${text.length} ký tự`);
+    
+    // Sử dụng Edge TTS để xử lý text dài
+    const audioBuffers = await edgeTextToSpeechLong(text, voice);
+    
+    console.log(`✅ Tạo thành công ${audioBuffers.length} audio chunks`);
+    return audioBuffers;
+    
+  } catch (error) {
+    console.error("❌ Lỗi tạo voice cho text dài:", error);
+    return [];
   }
-  
-  // Kiểm tra xem có phải chỉ là emoji hoặc ký tự đặc biệt không
-  const textOnly = cleanText.replace(/[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim();
-  
-  return textOnly.length > 0;
 }
 
-// Google Translate TTS hỗ trợ tiếng Việt với giọng mặc định
-export const TTS_LANGUAGE = 'vi'; // Mã ngôn ngữ cho Google Translate TTS
+// Hàm kiểm tra xem text có phù hợp cho TTS không (sử dụng Edge TTS)
+export function isTextSuitableForTTS(text: string): boolean {
+  return isTextSuitableForEdgeTTS(text);
+}
+
+// Edge TTS hỗ trợ tiếng Việt với nhiều giọng nói
+export const TTS_LANGUAGE = 'vi-VN'; // Mã ngôn ngữ cho Edge TTS
+export { VIETNAMESE_VOICES, type VietnameseVoice } from './edge-tts';
