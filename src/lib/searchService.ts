@@ -1,5 +1,7 @@
 // Enhanced Search Service với multiple APIs và fallback system
-// Tavily AI (chính) -> Brave Search API (backup) -> Pexels/Unsplash (hình ảnh)
+// Tavily AI (chính) -> Brave Search API (backup) -> Pexels/Unsplash (hình ảnh) -> Google Vision filtering
+
+import { visionService, type ImageFilterResult } from './vision';
 
 interface SearchResult {
   title: string;
@@ -239,46 +241,90 @@ class EnhancedSearchService {
     return validImages;
   }
 
-  // Tìm kiếm hình ảnh chất lượng cao từ Pexels + Unsplash với validation
+  // Tìm kiếm hình ảnh chất lượng cao từ Pexels + Unsplash với Google Vision filtering
   private async searchImages(query: string, maxImages: number = 3): Promise<ImageResult[]> {
+    console.log(`🔍 Searching images for: "${query}" (maxImages: ${maxImages})`);
+    
+    // Lấy 10 ảnh để phân tích với Google Vision (5 từ Pexels + 5 từ Unsplash)
+    const searchCount = 10;
+    const pexelsCount = 5;
+    const unsplashCount = 5;
+
     const images: ImageResult[] = [];
     
-    // Giới hạn theo Telegram: tối đa 10 ảnh
-    const limitedMaxImages = Math.min(maxImages, 10);
-    
-    // Lấy nhiều ảnh hơn để có buffer cho việc validate
-    const bufferMultiplier = 1.5;
-    const searchCount = Math.ceil(limitedMaxImages * bufferMultiplier);
-
     // Cải thiện query cho tìm kiếm hình ảnh
     const enhancedQueries = this.enhanceImageQuery(query);
     console.log(`🔍 Enhanced queries: ${enhancedQueries.join(', ')}`);
 
-    // Thử từng query cho đến khi có đủ ảnh
-    for (const enhancedQuery of enhancedQueries) {
-      if (images.length >= searchCount) break;
+    // Lấy ảnh từ cả 2 sources song song
+    const searchPromises: Promise<ImageResult[]>[] = [];
 
-      // Pexels API - lấy khoảng 60% số ảnh yêu cầu
-      if (this.pexelsApiKey && images.length < searchCount) {
-        try {
-          const pexelsCount = Math.ceil((searchCount - images.length) * 0.6);
-          const pexelsImages = await this.searchPexels(enhancedQuery, pexelsCount);
-          images.push(...pexelsImages);
-          console.log(`📸 Pexels found ${pexelsImages.length} images for "${enhancedQuery}"`);
-        } catch (error) {
-          console.log(`❌ Pexels search failed for "${enhancedQuery}":`, error);
-        }
+    // Pexels API - lấy 5 ảnh
+    if (this.pexelsApiKey) {
+      for (const enhancedQuery of enhancedQueries.slice(0, 2)) { // Thử 2 query đầu tiên
+        searchPromises.push(
+          this.searchPexels(enhancedQuery, Math.ceil(pexelsCount / 2))
+            .catch(error => {
+              console.log(`❌ Pexels search failed for "${enhancedQuery}":`, error);
+              return [];
+            })
+        );
       }
+    }
 
-      // Unsplash API - lấy phần còn lại
-      if (this.unsplashApiKey && images.length < searchCount) {
-        try {
-          const remainingCount = Math.ceil((searchCount - images.length) * 0.4);
-          const unsplashImages = await this.searchUnsplash(enhancedQuery, remainingCount);
-          images.push(...unsplashImages);
-          console.log(`📸 Unsplash found ${unsplashImages.length} images for "${enhancedQuery}"`);
-        } catch (error) {
-          console.log(`❌ Unsplash search failed for "${enhancedQuery}":`, error);
+    // Unsplash API - lấy 5 ảnh  
+    if (this.unsplashApiKey) {
+      for (const enhancedQuery of enhancedQueries.slice(0, 2)) { // Thử 2 query đầu tiên
+        searchPromises.push(
+          this.searchUnsplash(enhancedQuery, Math.ceil(unsplashCount / 2))
+            .catch(error => {
+              console.log(`❌ Unsplash search failed for "${enhancedQuery}":`, error);
+              return [];
+            })
+        );
+      }
+    }
+
+    // Chờ tất cả searches hoàn thành
+    const searchResults = await Promise.all(searchPromises);
+    searchResults.forEach(results => images.push(...results));
+
+    console.log(`📸 Total images found: ${images.length} (target: ${searchCount})`);
+
+    // Nếu không đủ ảnh, thử fallback queries
+    if (images.length < searchCount) {
+      console.log(`🔄 Need more images, trying fallback searches...`);
+      const fallbackQueries = this.getFallbackQueries(query);
+      
+      for (const fallbackQuery of fallbackQueries) {
+        if (images.length >= searchCount) break;
+        
+        const remainingCount = searchCount - images.length;
+        
+        // Thử Pexels với fallback query
+        if (this.pexelsApiKey && remainingCount > 0) {
+          try {
+            const pexelsImages = await this.searchPexels(fallbackQuery, Math.ceil(remainingCount / 2));
+            const newImages = pexelsImages.filter(newImg => 
+              !images.some(existingImg => existingImg.url === newImg.url)
+            );
+            images.push(...newImages);
+          } catch (error) {
+            console.log(`❌ Fallback Pexels search failed for "${fallbackQuery}":`, error);
+          }
+        }
+        
+        // Thử Unsplash với fallback query
+        if (this.unsplashApiKey && images.length < searchCount) {
+          try {
+            const unsplashImages = await this.searchUnsplash(fallbackQuery, Math.ceil((searchCount - images.length) / 2));
+            const newImages = unsplashImages.filter(newImg => 
+              !images.some(existingImg => existingImg.url === newImg.url)
+            );
+            images.push(...newImages);
+          } catch (error) {
+            console.log(`❌ Fallback Unsplash search failed for "${fallbackQuery}":`, error);
+          }
         }
       }
     }
@@ -287,67 +333,29 @@ class EnhancedSearchService {
     const uniqueImages = this.deduplicateImages(images);
     console.log(`🔄 Removed ${images.length - uniqueImages.length} duplicate images`);
 
-    // Validate tất cả ảnh
-    console.log(`🔍 Validating ${uniqueImages.length} images...`);
-    let validImages = await this.validateAndFilterImages(uniqueImages);
+    // Validate URLs trước khi gửi đến Google Vision
+    console.log(`🔍 Validating ${uniqueImages.length} image URLs...`);
+    const validImages = await this.validateAndFilterImages(uniqueImages);
     console.log(`✅ Found ${validImages.length} valid images out of ${uniqueImages.length}`);
+
+    // Sử dụng Google Vision để lọc và rank ảnh
+    console.log(`🤖 Using Google Vision to filter and rank images...`);
+    const visionFilteredImages = await visionService.filterAndRankImages(validImages, query, maxImages);
     
-    // Score và sort theo relevance
-    const scoredImages = this.scoreImageRelevance(validImages, query);
-    const sortedImages = scoredImages.sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
+    // Convert ImageFilterResult back to ImageResult for compatibility
+    const finalImages: ImageResult[] = visionFilteredImages.map(img => ({
+      url: img.url,
+      alt: img.alt,
+      source: img.source,
+      photographer: img.photographer,
+      width: img.width,
+      height: img.height,
+      relevanceScore: img.relevanceScore
+    }));
+
+    console.log(`🎯 Final result: ${finalImages.length} images selected by Google Vision`);
     
-    // Nếu không đủ ảnh hợp lệ, thử lấy thêm từ APIs với fallback queries
-    if (sortedImages.length < limitedMaxImages) {
-      console.log(`🔄 Need more images (${sortedImages.length}/${limitedMaxImages}), trying fallback searches...`);
-      
-      const fallbackQueries = this.getFallbackQueries(query);
-      const additionalImages: ImageResult[] = [];
-      
-      for (const fallbackQuery of fallbackQueries) {
-        if (sortedImages.length + additionalImages.length >= limitedMaxImages) break;
-        
-        const remainingCount = limitedMaxImages - sortedImages.length - additionalImages.length;
-        
-        // Thử Pexels với fallback query
-        if (this.pexelsApiKey) {
-          try {
-            const pexelsImages = await this.searchPexels(fallbackQuery, Math.ceil(remainingCount * 0.6));
-            const newImages = pexelsImages.filter(newImg => 
-              !sortedImages.some(existingImg => existingImg.url === newImg.url) &&
-              !additionalImages.some(existingImg => existingImg.url === newImg.url)
-            );
-            additionalImages.push(...newImages);
-          } catch (error) {
-            console.log(`❌ Fallback Pexels search failed for "${fallbackQuery}":`, error);
-          }
-        }
-        
-        // Thử Unsplash với fallback query
-        if (this.unsplashApiKey && additionalImages.length < remainingCount) {
-          try {
-            const unsplashImages = await this.searchUnsplash(fallbackQuery, Math.ceil(remainingCount * 0.4));
-            const newImages = unsplashImages.filter(newImg => 
-              !sortedImages.some(existingImg => existingImg.url === newImg.url) &&
-              !additionalImages.some(existingImg => existingImg.url === newImg.url)
-            );
-            additionalImages.push(...newImages);
-          } catch (error) {
-            console.log(`❌ Fallback Unsplash search failed for "${fallbackQuery}":`, error);
-          }
-        }
-      }
-      
-      // Validate additional images
-      if (additionalImages.length > 0) {
-        const additionalValidImages = await this.validateAndFilterImages(additionalImages);
-        const scoredAdditionalImages = this.scoreImageRelevance(additionalValidImages, query);
-        sortedImages.push(...scoredAdditionalImages);
-        console.log(`✅ Found ${additionalValidImages.length} additional valid images`);
-      }
-    }
-    
-    // Trả về đúng số lượng yêu cầu, đã được sort theo relevance
-    return sortedImages.slice(0, limitedMaxImages);
+    return finalImages;
   }
 
   // Cải thiện query cho tìm kiếm hình ảnh
