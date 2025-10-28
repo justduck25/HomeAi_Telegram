@@ -37,7 +37,14 @@ class GeminiVisionService {
 
   private initializeClient() {
     try {
-      // Sử dụng Google Gemini AI thay vì Cloud Vision (không cần billing)
+      // Tạm thời tắt Gemini Vision do rate limit (10 requests/phút)
+      // TODO: Sẽ enable lại sau khi tối ưu rate limiting
+      console.log('⚠️ Gemini Vision temporarily disabled - using standard image filtering');
+      console.log('💡 Reason: Gemini free tier has 10 requests/minute limit');
+      this.isEnabled = false;
+      
+      /* 
+      // Code để enable Gemini Vision (comment tạm thời)
       if (process.env.GOOGLE_API_KEY) {
         this.genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
         this.isEnabled = true;
@@ -47,6 +54,7 @@ class GeminiVisionService {
         console.log('💡 Set GOOGLE_API_KEY to enable Gemini-powered image analysis');
         this.isEnabled = false;
       }
+      */
     } catch (error) {
       console.error('❌ Failed to initialize Gemini Vision Service:', error);
       this.isEnabled = false;
