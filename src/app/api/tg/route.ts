@@ -12,6 +12,7 @@ import {
 } from "@/lib/database";
 import { textToSpeech, sendVoiceMessage, sendRecordingAction, isTextSuitableForTTS, MAX_GOOGLE_TRANSLATE_TTS_LEN } from "@/lib/text-to-speech";
 import { getWeatherData, formatWeatherMessage, getWeatherForecast, formatForecastMessage, getWeatherByCoordinates } from "@/lib/weather";
+import { searchService } from "@/lib/searchService";
 
 // Sử dụng Node.js runtime để tương thích với SDK
 export const runtime = "nodejs";
@@ -74,55 +75,26 @@ async function requestLocationMessage(chatId: string, message: string): Promise<
   }
 }
 
-// Hàm tìm kiếm web với Google Custom Search API
-async function searchWeb(query: string, includeImages: boolean = false): Promise<{ text: string | null; images: string[] }> {
-  const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
-  const searchEngineId = process.env.GOOGLE_SEARCH_ENGINE_ID;
-  
-  if (!apiKey || !searchEngineId) {
-    console.log("Google Search API chưa được cấu hình");
-    return { text: null, images: [] };
-  }
 
+// Legacy function - giữ để backward compatibility nhưng sử dụng enhanced service
+async function searchWeb(query: string, includeImages: boolean = false): Promise<{ text: string | null; images: string[] }> {
   try {
-    // Tìm kiếm text
-    const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}&num=5&lr=lang_vi`;
+    const result = await searchService.search(query, includeImages);
     
-    const response = await fetch(searchUrl);
-    const data = await response.json();
-    
-    let searchResults = null;
-    let images: string[] = [];
-    
-    if (response.ok && data.items && data.items.length > 0) {
-      // Format kết quả search
-      searchResults = `🔍 **Kết quả tìm kiếm cho "${query}":**\n\n`;
-      
-      data.items.slice(0, 3).forEach((item: { title: string; snippet: string; link: string }, index: number) => {
-        searchResults! += `**${index + 1}. ${item.title}**\n`;
-        searchResults! += `${item.snippet}\n`;
-        searchResults! += `🔗 ${item.link}\n\n`;
-      });
+    if (!result.success) {
+      console.log("Enhanced search service không thể tìm kiếm");
+      return { text: null, images: [] };
     }
+
+    // Convert ImageResult[] to string[] for backward compatibility
+    const imageUrls = result.images.map(img => img.url);
     
-    // Tìm kiếm hình ảnh nếu được yêu cầu
-    if (includeImages) {
-      try {
-        const imageSearchUrl = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}&searchType=image&num=3&lr=lang_vi`;
-        const imageResponse = await fetch(imageSearchUrl);
-        const imageData = await imageResponse.json();
-        
-        if (imageResponse.ok && imageData.items && imageData.items.length > 0) {
-          images = imageData.items.map((item: { link: string }) => item.link).slice(0, 3);
-        }
-      } catch (error) {
-        console.error("Lỗi tìm kiếm hình ảnh:", error);
-      }
-    }
-    
-    return { text: searchResults, images };
+    return { 
+      text: result.text, 
+      images: imageUrls 
+    };
   } catch (error) {
-    console.error("Lỗi tìm kiếm web:", error);
+    console.error("Lỗi enhanced search service:", error);
     return { text: null, images: [] };
   }
 }
