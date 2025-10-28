@@ -403,7 +403,7 @@ export async function getWeatherDataFromWeatherAPI(cityOrLat: string | number, l
   const apiKey = process.env.WEATHERAPI_KEY;
   
   if (!apiKey) {
-    throw new Error('WeatherAPI key không được cấu hình');
+    throw new Error('WeatherAPI key không được cấu hình. Vui lòng thêm WEATHERAPI_KEY vào file .env.local');
   }
 
   try {
@@ -427,6 +427,10 @@ export async function getWeatherDataFromWeatherAPI(cityOrLat: string | number, l
       if (response.status === 400) {
         console.log(`❌ Không tìm thấy địa điểm: ${query}`);
         return null; // Địa điểm không tìm thấy
+      } else if (response.status === 401) {
+        throw new Error('WeatherAPI key không hợp lệ. Vui lòng kiểm tra WEATHERAPI_KEY trong file .env.local');
+      } else if (response.status === 403) {
+        throw new Error('WeatherAPI key đã hết quota hoặc bị khóa. Vui lòng kiểm tra tài khoản WeatherAPI.com');
       }
       throw new Error(`WeatherAPI error: ${response.status}`);
     }
@@ -491,7 +495,7 @@ export async function getWeatherForecastFromWeatherAPI(cityOrLat: string | numbe
   const apiKey = process.env.WEATHERAPI_KEY;
   
   if (!apiKey) {
-    throw new Error('WeatherAPI key không được cấu hình');
+    throw new Error('WeatherAPI key không được cấu hình. Vui lòng thêm WEATHERAPI_KEY vào file .env.local');
   }
 
   try {
@@ -515,6 +519,10 @@ export async function getWeatherForecastFromWeatherAPI(cityOrLat: string | numbe
       if (response.status === 400) {
         console.log(`❌ Không tìm thấy địa điểm cho forecast: ${query}`);
         return null;
+      } else if (response.status === 401) {
+        throw new Error('WeatherAPI key không hợp lệ. Vui lòng kiểm tra WEATHERAPI_KEY trong file .env.local');
+      } else if (response.status === 403) {
+        throw new Error('WeatherAPI key đã hết quota hoặc bị khóa. Vui lòng kiểm tra tài khoản WeatherAPI.com');
       }
       throw new Error(`WeatherAPI forecast error: ${response.status}`);
     }
