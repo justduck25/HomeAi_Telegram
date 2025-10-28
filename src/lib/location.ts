@@ -1,4 +1,5 @@
 import { User, IUser } from './models/User';
+import { connectToMongoDB } from './mongoose';
 
 export interface LocationData {
   latitude: number;
@@ -41,6 +42,9 @@ export async function saveUserLocation(
   userInfo?: { firstName?: string; lastName?: string; username?: string }
 ): Promise<IUser> {
   try {
+    // Ensure MongoDB connection
+    await connectToMongoDB();
+    
     // Reverse geocoding để lấy tên thành phố
     const { city, country } = await reverseGeocode(location.latitude, location.longitude);
     
@@ -83,6 +87,7 @@ export async function saveUserLocation(
  */
 export async function getUserLocation(telegramId: string): Promise<LocationData | null> {
   try {
+    await connectToMongoDB();
     const user = await User.findOne({ telegramId });
     
     if (user?.location?.latitude && user?.location?.longitude) {

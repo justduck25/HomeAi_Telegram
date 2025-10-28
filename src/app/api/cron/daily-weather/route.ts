@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
         const { latitude, longitude } = user.location;
         const locationName = formatUserLocationName(user.location);
         
-        // Lấy dữ liệu thời tiết
+        // Lấy dữ liệu thời tiết từ Open-Meteo (miễn phí, chính xác)
         const weatherData = await getWeatherData(latitude, longitude);
         
         if (weatherData) {
