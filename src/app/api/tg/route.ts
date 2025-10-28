@@ -166,13 +166,13 @@ function parseImageCount(text: string): number {
     const match = text.match(pattern);
     if (match) {
       const count = parseInt(match[1]);
-      // Giới hạn theo Telegram limits: tối đa 10 ảnh
-      return Math.min(Math.max(count, 1), 10);
+      // Giới hạn theo Telegram limits: tối đa 3 ảnh (sau khi lọc bằng Google Vision)
+      return Math.min(Math.max(count, 1), 3);
     }
   }
   
-  // Mặc định trả về 2-5 ảnh ngẫu nhiên nếu không parse được
-  return Math.floor(Math.random() * 4) + 2; // Random từ 2 đến 5
+  // Mặc định trả về 3 ảnh (tối đa theo Telegram limit)
+  return 3;
 }
 
 // Hàm kiểm tra tin nhắn chào hỏi
@@ -1218,10 +1218,11 @@ export async function POST(req: NextRequest) {
       
       await sendTypingAction(chatId);
       
-      // Parse số lượng ảnh từ lệnh /image
+      // Parse số lượng ảnh từ lệnh /image (tối đa 3 ảnh)
       const requestedImageCount = parseImageCount(searchQuery);
-      await sendTelegramMessage(chatId, `🖼️ Đang tìm kiếm ${requestedImageCount} hình ảnh "${searchQuery}"...`);
+      await sendTelegramMessage(chatId, `🖼️ Đang tìm kiếm ${requestedImageCount} hình ảnh "${searchQuery}"...\n🤖 *Sử dụng Google Vision để lọc ảnh chất lượng cao*`);
       
+      // searchService sẽ lấy 10 ảnh (5 Pexels + 5 Unsplash) và Google Vision sẽ lọc ra những ảnh tốt nhất
       const { images } = await searchWeb(searchQuery, true, requestedImageCount);
       
       if (images && images.length > 0) {
