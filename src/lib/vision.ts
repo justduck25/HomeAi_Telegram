@@ -73,8 +73,8 @@ class GeminiVisionService {
     }
 
     try {
-      // Sử dụng Gemini Vision model
-      const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      // Sử dụng Gemini 2.5 Flash model
+      const model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
       // Fetch image data
       const imageResponse = await fetch(imageUrl);
