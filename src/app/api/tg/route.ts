@@ -10,7 +10,7 @@ import {
   getAllUsers,
   type User 
 } from "@/lib/database";
-import { textToSpeech, sendVoiceMessage, sendRecordingAction, isTextSuitableForTTS, MAX_GOOGLE_TRANSLATE_TTS_LEN } from "@/lib/text-to-speech";
+import { textToSpeech, textToSpeechLong, sendVoiceMessage, sendRecordingAction, isTextSuitableForTTS } from "@/lib/text-to-speech";
 import { getWeatherData, formatWeatherMessage, getWeatherForecast, formatForecastMessage, getWeatherByCoordinates } from "@/lib/weather";
 import { searchService } from "@/lib/searchService";
 
@@ -77,9 +77,9 @@ async function requestLocationMessage(chatId: string, message: string): Promise<
 
 
 // Legacy function - giữ để backward compatibility nhưng sử dụng enhanced service
-async function searchWeb(query: string, includeImages: boolean = false): Promise<{ text: string | null; images: string[] }> {
+async function searchWeb(query: string, includeImages: boolean = false, maxImages: number = 3): Promise<{ text: string | null; images: string[] }> {
   try {
-    const result = await searchService.search(query, includeImages);
+    const result = await searchService.search(query, includeImages, maxImages);
     
     if (!result.success) {
       console.log("Enhanced search service không thể tìm kiếm");
@@ -150,6 +150,29 @@ function shouldSearchImages(text: string): boolean {
   return imageKeywords.some(keyword => lowerText.includes(keyword));
 }
 
+// Hàm parse số lượng ảnh từ tin nhắn user
+function parseImageCount(text: string): number {
+  // Tìm các pattern số lượng ảnh
+  const patterns = [
+    /(\d+)\s*(?:ảnh|hình|photo|image|picture)/i,
+    /(?:ảnh|hình|photo|image|picture)\s*(\d+)/i,
+    /(?:cho|show|hiển thị|xem)\s*(?:tôi|me)?\s*(\d+)\s*(?:ảnh|hình|photo|image)/i,
+    /(\d+)\s*(?:cái|tấm|bức)/i
+  ];
+  
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const count = parseInt(match[1]);
+      // Giới hạn theo Telegram limits: tối đa 10 ảnh
+      return Math.min(Math.max(count, 1), 10);
+    }
+  }
+  
+  // Mặc định trả về 2-5 ảnh ngẫu nhiên nếu không parse được
+  return Math.floor(Math.random() * 4) + 2; // Random từ 2 đến 5
+}
+
 // Hàm kiểm tra tin nhắn chào hỏi
 function isGreeting(text: string): boolean {
   const greetings = [
@@ -199,8 +222,10 @@ function getCommandsList(user?: User | null): string {
     `• \`/forecast <tên thành phố>\` - Dự báo theo tên thành phố\n` +
     `• \`/location\` - Quản lý vị trí đã lưu\n` +
     `• \`/daily on/off\` - Bật/tắt thông báo thời tiết hàng ngày (6:00 sáng)\n\n` +
-    `🎤 **Voice:**\n` +
-    `• \`/voice <câu hỏi>\` - Trả lời bằng giọng nói\n\n` +
+    `🎤 **Voice (Edge TTS - Không giới hạn ký tự):**\n` +
+    `• \`/voice <câu hỏi>\` - Trả lời bằng giọng nói tiếng Việt\n` +
+    `• Hỗ trợ text dài (tự động chia thành nhiều voice messages)\n` +
+    `• Giọng nói: HoaiMy (nữ) hoặc NamMinh (nam)\n\n` +
     `🧠 **Bộ nhớ:**\n` +
     `• \`/memory\` - Kiểm tra trạng thái bộ nhớ\n` +
     `• \`/userinfo\` - Xem thông tin người dùng\n` +
@@ -1190,9 +1215,12 @@ export async function POST(req: NextRequest) {
       }
       
       await sendTypingAction(chatId);
-      await sendTelegramMessage(chatId, `🖼️ Đang tìm kiếm hình ảnh "${searchQuery}"...`);
       
-      const { images } = await searchWeb(searchQuery, true);
+      // Parse số lượng ảnh từ lệnh /image
+      const requestedImageCount = parseImageCount(searchQuery);
+      await sendTelegramMessage(chatId, `🖼️ Đang tìm kiếm ${requestedImageCount} hình ảnh "${searchQuery}"...`);
+      
+      const { images } = await searchWeb(searchQuery, true, requestedImageCount);
       
       if (images && images.length > 0) {
         let imageMessage = `🖼️ **Hình ảnh tìm kiếm cho "${searchQuery}":**\n\n`;
@@ -1676,9 +1704,12 @@ export async function POST(req: NextRequest) {
     if (needsWebSearch || needsImageSearch) {
       await sendTypingAction(chatId);
       
+      // Parse số lượng ảnh từ tin nhắn user
+      const requestedImageCount = parseImageCount(text);
+      
       if (needsWebSearch && needsImageSearch) {
-        await sendTelegramMessage(chatId, "🔍 Đang tìm kiếm thông tin và hình ảnh...");
-        const result = await searchWeb(text, true);
+        await sendTelegramMessage(chatId, `🔍 Đang tìm kiếm thông tin và ${requestedImageCount} hình ảnh...`);
+        const result = await searchWeb(text, true, requestedImageCount);
         searchResults = result.text;
         searchImages = result.images;
       } else if (needsWebSearch) {
@@ -1686,8 +1717,8 @@ export async function POST(req: NextRequest) {
         const result = await searchWeb(text);
         searchResults = result.text;
       } else if (needsImageSearch) {
-        await sendTelegramMessage(chatId, "🖼️ Đang tìm kiếm hình ảnh...");
-        const result = await searchWeb(text, true);
+        await sendTelegramMessage(chatId, `🖼️ Đang tìm kiếm ${requestedImageCount} hình ảnh...`);
+        const result = await searchWeb(text, true, requestedImageCount);
         searchImages = result.images;
       }
     }
@@ -1873,19 +1904,47 @@ export async function POST(req: NextRequest) {
           .replace(/\n{3,}/g, '\n\n')
           .trim();
 
-        if (cleanText.length > MAX_GOOGLE_TRANSLATE_TTS_LEN) {
-          await sendTelegramMessage(chatId, `❗ Văn bản quá dài để tạo voice bằng Google Translate TTS (>${MAX_GOOGLE_TRANSLATE_TTS_LEN} ký tự). Hãy dùng câu ngắn hơn hoặc chia nhỏ.`);
-          return NextResponse.json({ ok: true });
-        }
-
-        const audioBuffer = await textToSpeech(reply);
-        if (audioBuffer) {
-          const voiceSent = await sendVoiceMessage(chatId, audioBuffer);
-          if (!voiceSent) {
-            await sendTelegramMessage(chatId, "❌ Không thể tạo voice response. Vui lòng thử lại!");
+        // Edge TTS có thể xử lý text rất dài, nhưng nếu quá dài thì chia thành nhiều voice messages
+        if (cleanText.length > 5000) {
+          // Text rất dài - chia thành nhiều voice messages
+          await sendTelegramMessage(chatId, `🎤 Text dài (${cleanText.length} ký tự) - sẽ chia thành nhiều voice messages...`);
+          
+          const audioBuffers = await textToSpeechLong(cleanText);
+          
+          if (audioBuffers.length > 0) {
+            for (let i = 0; i < audioBuffers.length; i++) {
+              await sendRecordingAction(chatId);
+              const voiceSent = await sendVoiceMessage(chatId, audioBuffers[i]);
+              
+              if (!voiceSent) {
+                await sendTelegramMessage(chatId, `❌ Không thể gửi voice message ${i + 1}/${audioBuffers.length}`);
+                break;
+              }
+              
+              // Delay nhỏ giữa các voice messages
+              if (i < audioBuffers.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+              }
+            }
+            
+            if (audioBuffers.length > 1) {
+              await sendTelegramMessage(chatId, `✅ Đã gửi ${audioBuffers.length} voice messages`);
+            }
+          } else {
+            await sendTelegramMessage(chatId, "❌ Không thể tạo voice messages từ text dài này.");
           }
         } else {
-          await sendTelegramMessage(chatId, "❌ Không thể chuyển đổi text thành voice. Văn bản có thể không phù hợp cho TTS.");
+          // Text ngắn - tạo 1 voice message
+          const audioBuffer = await textToSpeech(cleanText);
+          
+          if (audioBuffer) {
+            const voiceSent = await sendVoiceMessage(chatId, audioBuffer);
+            if (!voiceSent) {
+              await sendTelegramMessage(chatId, "❌ Không thể tạo voice response. Vui lòng thử lại!");
+            }
+          } else {
+            await sendTelegramMessage(chatId, "❌ Không thể chuyển đổi text thành voice. Văn bản có thể không phù hợp cho TTS.");
+          }
         }
       } catch (error) {
         console.error("Lỗi tạo voice response:", error);

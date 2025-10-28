@@ -18,8 +18,9 @@ Bot Telegram thông minh được hỗ trợ bởi Google Gemini AI, có khả n
   - Hỗ trợ tiếng Việt với emoji trực quan
 - 🎤 **Voice Response**: 
   - Lệnh `/voice <câu hỏi>` để nhận câu trả lời bằng giọng nói
-  - Sử dụng Google Translate TTS (miễn phí, không cần API key)
-  - Hỗ trợ tiếng Việt tự nhiên
+  - Sử dụng Microsoft Edge TTS (miễn phí, không giới hạn ký tự)
+  - Giọng tiếng Việt tự nhiên (HoaiMy nữ, NamMinh nam)
+  - Hỗ trợ text dài với multiple voice messages
 - 🧠 **Ghi nhớ ngữ cảnh**: Lưu trữ cuộc trò chuyện trong 2 tiếng với MongoDB
 - 🤖 **Lệnh thông minh**: `/help`, `/start`, `/reset`, `/memory`
 - 👋 **Phát hiện chào hỏi**: Tự động hiển thị hướng dẫn khi được chào

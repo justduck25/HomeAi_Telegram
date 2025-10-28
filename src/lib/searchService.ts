@@ -42,8 +42,8 @@ class EnhancedSearchService {
   }
 
   // Main search function với fallback system
-  async search(query: string, includeImages: boolean = false): Promise<SearchResponse> {
-    console.log(`🔍 Tìm kiếm: "${query}" (includeImages: ${includeImages})`);
+  async search(query: string, includeImages: boolean = false, maxImages: number = 3): Promise<SearchResponse> {
+    console.log(`🔍 Tìm kiếm: "${query}" (includeImages: ${includeImages}, maxImages: ${maxImages})`);
 
     // Thử Tavily AI trước (chính)
     if (this.tavilyApiKey) {
@@ -53,7 +53,7 @@ class EnhancedSearchService {
           console.log("✅ Tavily AI search thành công");
           
           if (includeImages) {
-            const images = await this.searchImages(query);
+            const images = await this.searchImages(query, maxImages);
             return { ...tavilyResult, images };
           }
           
@@ -67,7 +67,7 @@ class EnhancedSearchService {
     // Fallback to Brave Search API
     if (this.braveApiKey) {
       try {
-        const braveResult = await this.searchWithBrave(query, includeImages);
+        const braveResult = await this.searchWithBrave(query, includeImages, maxImages);
         if (braveResult.success) {
           console.log("✅ Brave Search API thành công (backup)");
           return braveResult;
@@ -139,7 +139,7 @@ class EnhancedSearchService {
   }
 
   // Brave Search API (Backup)
-  private async searchWithBrave(query: string, includeImages: boolean): Promise<SearchResponse> {
+  private async searchWithBrave(query: string, includeImages: boolean, maxImages: number = 3): Promise<SearchResponse> {
     const searchUrl = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5&country=VN&search_lang=vi`;
     
     const response = await fetch(searchUrl, {
@@ -171,7 +171,7 @@ class EnhancedSearchService {
     // Get images from Brave if requested and available
     let images: ImageResult[] = [];
     if (includeImages && data.images && data.images.results) {
-      images = data.images.results.slice(0, 3).map((img: any) => ({
+      images = data.images.results.slice(0, maxImages).map((img: any) => ({
         url: img.src,
         alt: img.title || query,
         source: "brave",
@@ -188,36 +188,145 @@ class EnhancedSearchService {
     };
   }
 
-  // Tìm kiếm hình ảnh chất lượng cao từ Pexels + Unsplash
-  private async searchImages(query: string): Promise<ImageResult[]> {
-    const images: ImageResult[] = [];
+  // Validate image URL để đảm bảo ảnh còn hợp lệ
+  private async validateImageUrl(url: string): Promise<boolean> {
+    try {
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 seconds timeout
+      
+      const response = await fetch(url, { 
+        method: 'HEAD',
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      // Check if response is ok and content-type is image
+      if (response.ok) {
+        const contentType = response.headers.get('content-type');
+        return contentType ? contentType.startsWith('image/') : false;
+      }
+      
+      return false;
+    } catch (error) {
+      console.log(`❌ Image validation failed for ${url}:`, error);
+      return false;
+    }
+  }
 
-    // Pexels API
+  // Validate và filter ảnh hợp lệ (parallel validation)
+  private async validateAndFilterImages(images: ImageResult[]): Promise<ImageResult[]> {
+    // Validate tất cả ảnh parallel để tăng tốc độ
+    const validationPromises = images.map(async (image) => {
+      const isValid = await this.validateImageUrl(image.url);
+      return { image, isValid };
+    });
+    
+    const validationResults = await Promise.all(validationPromises);
+    
+    const validImages: ImageResult[] = [];
+    validationResults.forEach(({ image, isValid }) => {
+      if (isValid) {
+        validImages.push(image);
+      } else {
+        console.log(`🔄 Skipping invalid image: ${image.url}`);
+      }
+    });
+    
+    return validImages;
+  }
+
+  // Tìm kiếm hình ảnh chất lượng cao từ Pexels + Unsplash với validation
+  private async searchImages(query: string, maxImages: number = 3): Promise<ImageResult[]> {
+    const images: ImageResult[] = [];
+    
+    // Giới hạn theo Telegram: tối đa 10 ảnh
+    const limitedMaxImages = Math.min(maxImages, 10);
+    
+    // Lấy nhiều ảnh hơn để có buffer cho việc validate
+    const bufferMultiplier = 1.5;
+    const searchCount = Math.ceil(limitedMaxImages * bufferMultiplier);
+
+    // Pexels API - lấy khoảng 60% số ảnh yêu cầu
     if (this.pexelsApiKey) {
       try {
-        const pexelsImages = await this.searchPexels(query);
+        const pexelsCount = Math.ceil(searchCount * 0.6);
+        const pexelsImages = await this.searchPexels(query, pexelsCount);
         images.push(...pexelsImages);
       } catch (error) {
         console.log("❌ Pexels search failed:", error);
       }
     }
 
-    // Unsplash API
-    if (this.unsplashApiKey && images.length < 3) {
+    // Unsplash API - lấy phần còn lại
+    if (this.unsplashApiKey) {
       try {
-        const unsplashImages = await this.searchUnsplash(query);
+        const remainingCount = Math.ceil(searchCount * 0.4);
+        const unsplashImages = await this.searchUnsplash(query, remainingCount);
         images.push(...unsplashImages);
       } catch (error) {
         console.log("❌ Unsplash search failed:", error);
       }
     }
 
-    return images.slice(0, 3); // Giới hạn 3 ảnh
+    // Validate tất cả ảnh
+    console.log(`🔍 Validating ${images.length} images...`);
+    let validImages = await this.validateAndFilterImages(images);
+    console.log(`✅ Found ${validImages.length} valid images out of ${images.length}`);
+    
+    // Nếu không đủ ảnh hợp lệ, thử lấy thêm từ APIs
+    if (validImages.length < limitedMaxImages) {
+      console.log(`🔄 Need more images. Fetching additional images...`);
+      
+      const additionalNeeded = limitedMaxImages - validImages.length;
+      const additionalImages: ImageResult[] = [];
+      
+      // Lấy thêm từ Pexels
+      if (this.pexelsApiKey && additionalNeeded > 0) {
+        try {
+          const extraPexels = await this.searchPexels(query, additionalNeeded + 2);
+          // Filter out ảnh đã có
+          const newPexels = extraPexels.filter(img => 
+            !validImages.some(existing => existing.url === img.url)
+          );
+          additionalImages.push(...newPexels);
+        } catch (error) {
+          console.log("❌ Additional Pexels search failed:", error);
+        }
+      }
+      
+      // Lấy thêm từ Unsplash nếu vẫn chưa đủ
+      if (this.unsplashApiKey && additionalImages.length < additionalNeeded) {
+        try {
+          const extraUnsplash = await this.searchUnsplash(query, additionalNeeded + 2);
+          // Filter out ảnh đã có
+          const newUnsplash = extraUnsplash.filter(img => 
+            !validImages.some(existing => existing.url === img.url) &&
+            !additionalImages.some(existing => existing.url === img.url)
+          );
+          additionalImages.push(...newUnsplash);
+        } catch (error) {
+          console.log("❌ Additional Unsplash search failed:", error);
+        }
+      }
+      
+      // Validate ảnh bổ sung
+      if (additionalImages.length > 0) {
+        console.log(`🔍 Validating ${additionalImages.length} additional images...`);
+        const validAdditional = await this.validateAndFilterImages(additionalImages);
+        validImages.push(...validAdditional);
+        console.log(`✅ Added ${validAdditional.length} more valid images`);
+      }
+    }
+    
+    // Trả về đúng số lượng yêu cầu
+    return validImages.slice(0, limitedMaxImages);
   }
 
   // Pexels API - Hình ảnh chất lượng cao
-  private async searchPexels(query: string): Promise<ImageResult[]> {
-    const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=2&orientation=landscape`;
+  private async searchPexels(query: string, count: number = 2): Promise<ImageResult[]> {
+    const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${count}&orientation=landscape`;
     
     const response = await fetch(url, {
       headers: {
@@ -246,8 +355,8 @@ class EnhancedSearchService {
   }
 
   // Unsplash API - Hình ảnh nghệ thuật
-  private async searchUnsplash(query: string): Promise<ImageResult[]> {
-    const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=2&orientation=landscape&order_by=relevant`;
+  private async searchUnsplash(query: string, count: number = 2): Promise<ImageResult[]> {
+    const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=${count}&orientation=landscape&order_by=relevant`;
     
     const response = await fetch(url, {
       headers: {
