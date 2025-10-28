@@ -13,6 +13,7 @@ import {
 import { textToSpeech, textToSpeechLong, sendVoiceMessage, sendRecordingAction, isTextSuitableForTTS } from "@/lib/text-to-speech";
 import { getWeatherData, formatWeatherMessage, getWeatherForecast, formatForecastMessage, getWeatherByCoordinates } from "@/lib/weather";
 import { saveUserLocation } from "@/lib/location";
+import { IUser } from "@/lib/models/User";
 import { searchService } from "@/lib/searchService";
 
 // Sử dụng Node.js runtime để tương thích với SDK
@@ -218,9 +219,9 @@ function getCommandsList(user?: User | null): string {
     `• \`/image <từ khóa>\` - Tìm kiếm hình ảnh\n\n` +
     `🌤️ **Thời tiết:**\n` +
     `• \`/weather\` - Xem thời tiết (tự động yêu cầu vị trí)\n` +
-    `• \`/weather <tên thành phố>\` - Xem thời tiết theo tên thành phố\n` +
-    `• \`/forecast\` - Dự báo 5 ngày (tự động yêu cầu vị trí)\n` +
-    `• \`/forecast <tên thành phố>\` - Dự báo theo tên thành phố\n` +
+    `• \`/weather <tên thành phố>\` - Xem thời tiết theo tên thành phố (WeatherAPI)\n` +
+    `• \`/forecast\` - Dự báo 7 ngày (Open-Meteo, tự động yêu cầu vị trí)\n` +
+    `• \`/forecast <tên thành phố>\` - Dự báo theo tên thành phố (WeatherAPI)\n` +
     `• \`/location\` - Quản lý vị trí đã lưu\n` +
     `• \`/daily on/off\` - Bật/tắt thông báo thời tiết hàng ngày (6:00 sáng)\n\n` +
     `🎤 **Voice (Edge TTS - Không giới hạn ký tự):**\n` +
@@ -1303,7 +1304,7 @@ export async function POST(req: NextRequest) {
           } else {
             // Nếu chưa có tên thành phố, sử dụng tọa độ và reverse geocode
             const locationName = `${currentUser.location.latitude!.toFixed(4)}, ${currentUser.location.longitude!.toFixed(4)}`;
-            await sendTelegramMessage(chatId, `🌤️ Đang lấy thông tin thời tiết cho vị trí: ${locationName}...`);
+            await sendTelegramMessage(chatId, `🌤️ Đang lấy thông tin thời tiết cho vị trí: ${locationName}... (Open-Meteo)`);
             
             const result = await getWeatherByCoordinates(currentUser.location.latitude!, currentUser.location.longitude!);
             
@@ -1331,9 +1332,9 @@ export async function POST(req: NextRequest) {
             String(chatId),
             "🌤️ **Xem thời tiết**\n\n" +
             "Để xem thời tiết, bạn có thể:\n" +
-            "• Chia sẻ vị trí hiện tại (nhấn nút bên dưới)\n" +
-            "• Hoặc gõ: `/weather Tên thành phố`\n\n" +
-            "📍 *Chia sẻ vị trí để có dự báo chính xác nhất!*"
+            "• Chia sẻ vị trí hiện tại (nhấn nút bên dưới) - *Open-Meteo API*\n" +
+            "• Hoặc gõ: `/weather Tên thành phố` - *WeatherAPI fallback*\n\n" +
+            "📍 *Chia sẻ vị trí để có dự báo chính xác nhất với Open-Meteo!*"
           );
         }
         } catch (error) {
@@ -1352,7 +1353,7 @@ export async function POST(req: NextRequest) {
       // Nếu có tên thành phố, sử dụng như cũ
       if (cityName) {
         await sendTypingAction(chatId);
-        await sendTelegramMessage(chatId, `🌤️ Đang lấy dự báo thời tiết 5 ngày cho "${cityName}"...`);
+        await sendTelegramMessage(chatId, `🌤️ Đang lấy dự báo thời tiết cho "${cityName}"... (WeatherAPI fallback)`);
         
         try {
           const forecastData = await getWeatherForecast(cityName);
@@ -1398,7 +1399,7 @@ export async function POST(req: NextRequest) {
         if (currentUser?.location) {
           await sendTypingAction(chatId);
           const locationName = currentUser.location.city || `${currentUser.location.latitude.toFixed(4)}, ${currentUser.location.longitude.toFixed(4)}`;
-          await sendTelegramMessage(chatId, `🌤️ Đang lấy dự báo thời tiết 5 ngày cho vị trí đã lưu: ${locationName}...`);
+          await sendTelegramMessage(chatId, `🌤️ Đang lấy dự báo thời tiết 7 ngày cho vị trí đã lưu: ${locationName}... (Open-Meteo)`);
           
           const forecastData = await getWeatherForecast(currentUser.location.latitude, currentUser.location.longitude);
           
@@ -1418,11 +1419,11 @@ export async function POST(req: NextRequest) {
       // Nếu không có vị trí đã lưu, yêu cầu location real-time
       await requestLocationMessage(
         String(chatId),
-        "🌤️ **Dự báo thời tiết 5 ngày**\n\n" +
+        "🌤️ **Dự báo thời tiết 7 ngày**\n\n" +
         "Để xem dự báo, bạn có thể:\n" +
-        "• Chia sẻ vị trí hiện tại (nhấn nút bên dưới)\n" +
-        "• Hoặc gõ: `/forecast Tên thành phố`\n\n" +
-        "📍 *Chia sẻ vị trí để có dự báo chính xác nhất!*"
+        "• Chia sẻ vị trí hiện tại (nhấn nút bên dưới) - *Open-Meteo API*\n" +
+        "• Hoặc gõ: `/forecast Tên thành phố` - *WeatherAPI fallback*\n\n" +
+        "📍 *Chia sẻ vị trí để có dự báo chính xác nhất với Open-Meteo!*"
       );
       
       return NextResponse.json({ ok: true });
@@ -1586,7 +1587,42 @@ export async function POST(req: NextRequest) {
         };
         
         console.log(`📍 Processing location: ${locationData.latitude}, ${locationData.longitude}`);
-        const updatedUser = await saveUserLocation(String(userId), locationData, userInfo);
+        
+        // Try to save location with timeout handling
+        let updatedUser;
+        try {
+          updatedUser = await Promise.race([
+            saveUserLocation(String(userId), locationData, userInfo),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Database timeout')), 15000)
+            )
+          ]) as IUser;
+        } catch (dbError) {
+          console.error('Database error when saving location:', dbError);
+          
+          if (dbError instanceof Error && dbError.message.includes('timeout')) {
+            await sendTelegramMessage(chatId, 
+              "⚠️ **Lưu vị trí chậm hơn dự kiến**\n\n" +
+              "Đang xử lý vị trí của bạn... Vui lòng đợi thêm một chút.\n\n" +
+              "💡 *Bạn vẫn có thể sử dụng bot bình thường*"
+            );
+            
+            // Try again with longer timeout
+            try {
+              updatedUser = await saveUserLocation(String(userId), locationData, userInfo);
+            } catch (retryError) {
+              console.error('Retry failed:', retryError);
+              await sendTelegramMessage(chatId, 
+                "❌ **Không thể lưu vị trí**\n\n" +
+                "Có vấn đề với database. Vui lòng thử lại sau.\n\n" +
+                "🔄 *Hoặc liên hệ admin nếu vấn đề tiếp tục*"
+              );
+              return NextResponse.json({ ok: true });
+            }
+          } else {
+            throw dbError; // Re-throw non-timeout errors
+          }
+        }
         
         // Lấy thời tiết với reverse geocoding
         const result = await getWeatherByCoordinates(locationData.latitude, locationData.longitude);
