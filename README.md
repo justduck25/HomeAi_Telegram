@@ -9,7 +9,7 @@ Bot Telegram thông minh được hỗ trợ bởi Google Gemini AI, có khả n
 - 🔍 **Tìm kiếm web thông minh**: 
   - Tự động search khi phát hiện từ khóa (tin tức, giá cả, thời sự...)
   - Lệnh `/search <từ khóa>` để tìm kiếm thủ công
-  - Lệnh `/image <từ khóa>` để tìm kiếm hình ảnh với Google Vision AI
+  - Lệnh `/image <từ khóa>` để tìm kiếm hình ảnh với Gemini AI
   - Lọc ảnh chất lượng cao từ Pexels & Unsplash (10→3 ảnh tốt nhất)
   - Tích hợp kết quả vào câu trả lời AI
 - 🌤️ **Thông tin thời tiết**:
@@ -56,10 +56,8 @@ BRAVE_SEARCH_API_KEY=your_brave_search_api_key
 PEXELS_API_KEY=your_pexels_api_key
 UNSPLASH_ACCESS_KEY=your_unsplash_access_key
 
-# Google Cloud Vision API (Optional - for smart image filtering)
-# See GOOGLE_VISION_SETUP.md for detailed setup instructions
-GOOGLE_APPLICATION_CREDENTIALS=path/to/service-account-key.json
-GOOGLE_CLOUD_PROJECT=your-google-cloud-project-id
+# Smart Image Filtering powered by Gemini AI (uses existing GOOGLE_API_KEY)
+# No additional setup required - uses the same Gemini API key
 
 # Optional: For weather feature
 OPENWEATHER_API_KEY=your_openweathermap_api_key
