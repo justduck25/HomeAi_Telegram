@@ -245,10 +245,10 @@ class EnhancedSearchService {
   private async searchImages(query: string, maxImages: number = 3): Promise<ImageResult[]> {
     console.log(`🔍 Searching images for: "${query}" (maxImages: ${maxImages})`);
     
-    // Lấy 10 ảnh để phân tích với Google Vision (5 từ Pexels + 5 từ Unsplash)
-    const searchCount = 10;
-    const pexelsCount = 5;
-    const unsplashCount = 5;
+    // Ưu tiên Unsplash (chất lượng cao hơn) - tạm thời không dùng Gemini Vision
+    const searchCount = Math.min(maxImages * 2, 6); // Lấy gấp đôi để có buffer
+    const unsplashCount = Math.ceil(searchCount * 0.7); // 70% từ Unsplash
+    const pexelsCount = searchCount - unsplashCount; // 30% từ Pexels
 
     const images: ImageResult[] = [];
     
@@ -256,29 +256,29 @@ class EnhancedSearchService {
     const enhancedQueries = this.enhanceImageQuery(query);
     console.log(`🔍 Enhanced queries: ${enhancedQueries.join(', ')}`);
 
-    // Lấy ảnh từ cả 2 sources song song
+    // Ưu tiên Unsplash trước, sau đó mới Pexels
     const searchPromises: Promise<ImageResult[]>[] = [];
 
-    // Pexels API - lấy 5 ảnh
-    if (this.pexelsApiKey) {
-      for (const enhancedQuery of enhancedQueries.slice(0, 2)) { // Thử 2 query đầu tiên
-        searchPromises.push(
-          this.searchPexels(enhancedQuery, Math.ceil(pexelsCount / 2))
-            .catch(error => {
-              console.log(`❌ Pexels search failed for "${enhancedQuery}":`, error);
-              return [];
-            })
-        );
-      }
-    }
-
-    // Unsplash API - lấy 5 ảnh  
+    // Unsplash API - ưu tiên cao (chất lượng tốt hơn)
     if (this.unsplashApiKey) {
       for (const enhancedQuery of enhancedQueries.slice(0, 2)) { // Thử 2 query đầu tiên
         searchPromises.push(
           this.searchUnsplash(enhancedQuery, Math.ceil(unsplashCount / 2))
             .catch(error => {
               console.log(`❌ Unsplash search failed for "${enhancedQuery}":`, error);
+              return [];
+            })
+        );
+      }
+    }
+
+    // Pexels API - bổ sung thêm
+    if (this.pexelsApiKey && pexelsCount > 0) {
+      for (const enhancedQuery of enhancedQueries.slice(0, 1)) { // Chỉ thử 1 query
+        searchPromises.push(
+          this.searchPexels(enhancedQuery, pexelsCount)
+            .catch(error => {
+              console.log(`❌ Pexels search failed for "${enhancedQuery}":`, error);
               return [];
             })
         );
@@ -338,22 +338,24 @@ class EnhancedSearchService {
     const validImages = await this.validateAndFilterImages(uniqueImages);
     console.log(`✅ Found ${validImages.length} valid images out of ${uniqueImages.length}`);
 
-    // Sử dụng Google Vision để lọc và rank ảnh
-    console.log(`🤖 Using Google Vision to filter and rank images...`);
-    const visionFilteredImages = await visionService.filterAndRankImages(validImages, query, maxImages);
+    // Tạm thời không dùng Gemini Vision (rate limit), sử dụng scoring thông thường
+    console.log(`📊 Using standard relevance scoring (Gemini Vision disabled due to rate limits)...`);
     
-    // Convert ImageFilterResult back to ImageResult for compatibility
-    const finalImages: ImageResult[] = visionFilteredImages.map(img => ({
-      url: img.url,
-      alt: img.alt,
-      source: img.source,
-      photographer: img.photographer,
-      width: img.width,
-      height: img.height,
-      relevanceScore: img.relevanceScore
-    }));
+    // Score và sort theo relevance thông thường
+    const scoredImages = this.scoreImageRelevance(validImages, query);
+    const sortedImages = scoredImages.sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
+    
+    // Ưu tiên ảnh từ Unsplash
+    const prioritizedImages = sortedImages.sort((a, b) => {
+      // Unsplash gets priority
+      if (a.source === 'unsplash' && b.source !== 'unsplash') return -1;
+      if (b.source === 'unsplash' && a.source !== 'unsplash') return 1;
+      // Then by relevance score
+      return (b.relevanceScore || 0) - (a.relevanceScore || 0);
+    });
 
-    console.log(`🎯 Final result: ${finalImages.length} images selected by Google Vision`);
+    const finalImages = prioritizedImages.slice(0, maxImages);
+    console.log(`🎯 Final result: ${finalImages.length} images selected (${finalImages.filter(img => img.source === 'unsplash').length} from Unsplash)`);
     
     return finalImages;
   }
