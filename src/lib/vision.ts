@@ -1,6 +1,5 @@
-// Google Cloud Vision API Service for Image Analysis and Filtering
-import { ImageAnnotatorClient } from '@google-cloud/vision';
-import type { google } from '@google-cloud/vision/build/protos/protos';
+// Image Analysis and Filtering using Google Gemini AI
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export interface VisionAnalysisResult {
   labels: string[];
@@ -28,8 +27,8 @@ export interface ImageFilterResult {
   relevanceScore: number;
 }
 
-class GoogleVisionService {
-  private client: ImageAnnotatorClient | null = null;
+class GeminiVisionService {
+  private genAI: GoogleGenerativeAI | null = null;
   private isEnabled: boolean = false;
 
   constructor() {
@@ -38,58 +37,20 @@ class GoogleVisionService {
 
   private initializeClient() {
     try {
-      // Kiểm tra credentials theo thứ tự ưu tiên
-      if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-        // Sử dụng JSON credentials (cho Vercel/Production)
-        const credentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
-        this.client = new ImageAnnotatorClient({
-          credentials,
-          projectId: process.env.GOOGLE_CLOUD_PROJECT
-        });
+      // Sử dụng Google Gemini AI thay vì Cloud Vision (không cần billing)
+      if (process.env.GOOGLE_API_KEY) {
+        this.genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
         this.isEnabled = true;
-        console.log('✅ Google Cloud Vision API initialized (JSON credentials)');
-      } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS && process.env.GOOGLE_CLOUD_PROJECT) {
-        // Sử dụng file credentials (cho Development)
-        this.client = new ImageAnnotatorClient({
-          keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS,
-          projectId: process.env.GOOGLE_CLOUD_PROJECT
-        });
-        this.isEnabled = true;
-        console.log('✅ Google Cloud Vision API initialized (file credentials)');
+        console.log('✅ Gemini Vision Service initialized - using Gemini AI for image analysis');
       } else {
-        console.log('⚠️ Google Cloud Vision API not configured - image filtering disabled');
-        console.log('💡 Set GOOGLE_APPLICATION_CREDENTIALS + GOOGLE_CLOUD_PROJECT or GOOGLE_APPLICATION_CREDENTIALS_JSON');
+        console.log('⚠️ Gemini Vision Service not configured - image filtering disabled');
+        console.log('💡 Set GOOGLE_API_KEY to enable Gemini-powered image analysis');
         this.isEnabled = false;
       }
     } catch (error) {
-      console.error('❌ Failed to initialize Google Cloud Vision API:', error);
+      console.error('❌ Failed to initialize Gemini Vision Service:', error);
       this.isEnabled = false;
     }
-  }
-
-  /**
-   * Convert Google Cloud Vision Likelihood enum to string
-   */
-  private likelihoodToString(likelihood: google.cloud.vision.v1.Likelihood | string | null | undefined): string {
-    if (!likelihood) return 'UNKNOWN';
-    
-    // If it's already a string, return as is
-    if (typeof likelihood === 'string') return likelihood;
-    
-    // Convert enum to string using toString and mapping
-    const likelihoodStr = likelihood.toString();
-    
-    // Map numeric values to string names
-    const likelihoodMap: { [key: string]: string } = {
-      '0': 'UNKNOWN',
-      '1': 'VERY_UNLIKELY', 
-      '2': 'UNLIKELY',
-      '3': 'POSSIBLE',
-      '4': 'LIKELY',
-      '5': 'VERY_LIKELY'
-    };
-    
-    return likelihoodMap[likelihoodStr] || 'UNKNOWN';
   }
 
   /**
@@ -104,57 +65,81 @@ class GoogleVisionService {
   }
 
   /**
-   * Phân tích một ảnh bằng Google Cloud Vision
+   * Phân tích một ảnh bằng Google Gemini AI
    */
   async analyzeImage(imageUrl: string): Promise<VisionAnalysisResult | null> {
-    if (!this.isEnabled || !this.client) {
+    if (!this.isEnabled || !this.genAI) {
       return null;
     }
 
     try {
-      // Thực hiện multiple detections cùng lúc để tối ưu API calls
-      const [result] = await this.client.annotateImage({
-        image: { source: { imageUri: imageUrl } },
-        features: [
-          { type: 'LABEL_DETECTION', maxResults: 10 },
-          { type: 'OBJECT_LOCALIZATION', maxResults: 10 },
-          { type: 'TEXT_DETECTION', maxResults: 5 },
-          { type: 'SAFE_SEARCH_DETECTION' }
-        ]
-      });
+      // Sử dụng Gemini 2.5 Flash model
+      const model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-      // Extract labels (general categories)
-      const labels = result.labelAnnotations?.map(label => 
-        label.description?.toLowerCase() || ''
-      ).filter(label => label.length > 0) || [];
+      // Fetch image data
+      const imageResponse = await fetch(imageUrl);
+      if (!imageResponse.ok) {
+        throw new Error(`Failed to fetch image: ${imageResponse.status}`);
+      }
+      
+      const imageBuffer = await imageResponse.arrayBuffer();
+      const imageBase64 = Buffer.from(imageBuffer).toString('base64');
 
-      // Extract objects (specific items)
-      const objects = result.localizedObjectAnnotations?.map(obj => 
-        obj.name?.toLowerCase() || ''
-      ).filter(obj => obj.length > 0) || [];
+      // Prompt để phân tích ảnh
+      const prompt = `Analyze this image and provide a JSON response with the following structure:
+{
+  "labels": ["list", "of", "general", "categories", "describing", "the", "image"],
+  "objects": ["specific", "objects", "visible", "in", "image"],
+  "text": "any text visible in the image (empty string if none)",
+  "safeSearch": {
+    "adult": "VERY_UNLIKELY|UNLIKELY|POSSIBLE|LIKELY|VERY_LIKELY",
+    "violence": "VERY_UNLIKELY|UNLIKELY|POSSIBLE|LIKELY|VERY_LIKELY", 
+    "racy": "VERY_UNLIKELY|UNLIKELY|POSSIBLE|LIKELY|VERY_LIKELY",
+    "spoof": "VERY_UNLIKELY",
+    "medical": "VERY_UNLIKELY"
+  }
+}
 
-      // Extract text if any
-      const text = result.textAnnotations?.[0]?.description?.toLowerCase() || '';
+Focus on:
+- General categories/themes (labels)
+- Specific objects you can identify
+- Any text content
+- Safety assessment (adult content, violence, etc.)
 
-      // Safe search results - convert enum to string
-      const safeSearch = {
-        adult: this.likelihoodToString(result.safeSearchAnnotation?.adult),
-        spoof: this.likelihoodToString(result.safeSearchAnnotation?.spoof),
-        medical: this.likelihoodToString(result.safeSearchAnnotation?.medical),
-        violence: this.likelihoodToString(result.safeSearchAnnotation?.violence),
-        racy: this.likelihoodToString(result.safeSearchAnnotation?.racy)
-      };
+Respond ONLY with valid JSON, no additional text.`;
+
+      const result = await model.generateContent([
+        prompt,
+        {
+          inlineData: {
+            data: imageBase64,
+            mimeType: imageResponse.headers.get('content-type') || 'image/jpeg'
+          }
+        }
+      ]);
+
+      const response = await result.response;
+      const text = response.text();
+      
+      // Parse JSON response
+      const analysis = JSON.parse(text.trim());
 
       return {
-        labels,
-        objects,
-        text,
-        safeSearch,
+        labels: analysis.labels || [],
+        objects: analysis.objects || [],
+        text: analysis.text || '',
+        safeSearch: {
+          adult: analysis.safeSearch?.adult || 'UNKNOWN',
+          spoof: analysis.safeSearch?.spoof || 'VERY_UNLIKELY',
+          medical: analysis.safeSearch?.medical || 'VERY_UNLIKELY',
+          violence: analysis.safeSearch?.violence || 'UNKNOWN',
+          racy: analysis.safeSearch?.racy || 'UNKNOWN'
+        },
         relevanceScore: 0 // Will be calculated later
       };
 
     } catch (error) {
-      console.error(`❌ Vision API analysis failed for ${imageUrl}:`, error);
+      console.error(`❌ Gemini Vision analysis failed for ${imageUrl}:`, error);
       return null;
     }
   }
@@ -312,13 +297,10 @@ class GoogleVisionService {
   getStatus(): { enabled: boolean; hasCredentials: boolean } {
     return {
       enabled: this.isEnabled,
-      hasCredentials: !!(
-        (process.env.GOOGLE_APPLICATION_CREDENTIALS && process.env.GOOGLE_CLOUD_PROJECT) ||
-        (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && process.env.GOOGLE_CLOUD_PROJECT)
-      )
+      hasCredentials: !!process.env.GOOGLE_API_KEY
     };
   }
 }
 
 // Export singleton instance
-export const visionService = new GoogleVisionService();
+export const visionService = new GeminiVisionService();

@@ -1220,9 +1220,9 @@ export async function POST(req: NextRequest) {
       
       // Parse số lượng ảnh từ lệnh /image (tối đa 3 ảnh)
       const requestedImageCount = parseImageCount(searchQuery);
-      await sendTelegramMessage(chatId, `🖼️ Đang tìm kiếm ${requestedImageCount} hình ảnh "${searchQuery}"...\n🤖 *Sử dụng Google Vision để lọc ảnh chất lượng cao*`);
+      await sendTelegramMessage(chatId, `🖼️ Đang tìm kiếm ${requestedImageCount} hình ảnh "${searchQuery}"...\n🤖 *Sử dụng Gemini AI để lọc ảnh chất lượng cao*`);
       
-      // searchService sẽ lấy 10 ảnh (5 Pexels + 5 Unsplash) và Google Vision sẽ lọc ra những ảnh tốt nhất
+      // searchService sẽ lấy 10 ảnh (5 Pexels + 5 Unsplash) và Gemini AI sẽ lọc ra những ảnh tốt nhất
       const { images } = await searchWeb(searchQuery, true, requestedImageCount);
       
       if (images && images.length > 0) {
