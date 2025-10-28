@@ -21,7 +21,21 @@ export async function connectToMongoDB(): Promise<boolean> {
   try {
     console.log('🔄 Connecting to MongoDB with Mongoose...');
     
-    await mongoose.connect(process.env.MONGODB_URI, {
+    // Parse MONGODB_URI to ensure consistent database name 'telegram-bot'
+    const mongoUri = process.env.MONGODB_URI;
+    let finalUri = mongoUri;
+    
+    // Extract base URI without database name and add 'telegram-bot'
+    if (mongoUri.includes('mongodb.net/')) {
+      // Remove existing database name and query params, then add telegram-bot
+      const baseUri = mongoUri.split('mongodb.net/')[0] + 'mongodb.net/';
+      const queryParams = mongoUri.includes('?') ? '?' + mongoUri.split('?')[1] : '';
+      finalUri = baseUri + 'telegram-bot' + queryParams;
+    }
+    
+    console.log('🔄 Using database: telegram-bot');
+    
+    await mongoose.connect(finalUri, {
       // Connection options
       maxPoolSize: 10, // Maintain up to 10 socket connections
       serverSelectionTimeoutMS: 5000, // Keep trying to send operations for 5 seconds
