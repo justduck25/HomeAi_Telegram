@@ -15,37 +15,16 @@ export async function reverseGeocode(lat: number, lon: number): Promise<{ city?:
     // Import function từ weather.ts để tái sử dụng
     const { reverseGeocodeNominatim } = await import('./weather');
     
-    // Thử Nominatim OSM trước (miễn phí)
-    const locationName = await reverseGeocodeNominatim(lat, lon);
-    if (locationName) {
-      return { city: locationName };
-    }
-
-    // Fallback về OpenWeatherMap nếu có API key
-    const apiKey = process.env.OPENWEATHER_API_KEY;
-    if (!apiKey) {
-      console.warn('Không có OpenWeatherMap API key để fallback reverse geocoding');
-      return {};
-    }
-
-    const response = await fetch(
-      `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1&appid=${apiKey}`
-    );
-
-    if (!response.ok) {
-      throw new Error(`Reverse geocoding failed: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    if (data && data.length > 0) {
-      const location = data[0];
+    // Thử Nominatim OSM trước (miễn phí) - giờ trả về đầy đủ city và country
+    const locationData = await reverseGeocodeNominatim(lat, lon);
+    if (locationData) {
       return {
-        city: location.name || location.local_names?.vi || location.local_names?.en,
-        country: location.country
+        city: locationData.city,
+        country: locationData.country
       };
     }
 
+    // Nếu Nominatim không có kết quả, trả về empty
     return {};
   } catch (error) {
     console.error('Reverse geocoding error:', error);

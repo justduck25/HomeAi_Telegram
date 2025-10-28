@@ -13,144 +13,195 @@ interface WeatherData {
   uv_index?: number;
 }
 
-interface WeatherResponse {
-  weather: Array<{
-    main: string;
-    description: string;
-    icon: string;
-  }>;
-  main: {
-    temp: number;
-    feels_like: number;
-    humidity: number;
-    pressure: number;
-  };
-  wind: {
-    speed: number;
-    deg: number;
-  };
-  visibility: number;
-  name: string;
-  sys: {
-    country: string;
-  };
-}
-
-interface ForecastResponse {
-  cod: string;
-  message: number;
-  cnt: number;
-  list: Array<{
-    dt: number;
-    main: {
-      temp: number;
-      feels_like: number;
-      temp_min: number;
-      temp_max: number;
-      pressure: number;
-      sea_level: number;
-      grnd_level: number;
-      humidity: number;
-      temp_kf: number;
-    };
-    weather: Array<{
-      id: number;
-      main: string;
-      description: string;
-      icon: string;
-    }>;
-    clouds: {
-      all: number;
-    };
-    wind: {
-      speed: number;
-      deg: number;
-      gust?: number;
-    };
-    visibility: number;
-    pop: number;
-    rain?: {
-      '3h': number;
-    };
-    snow?: {
-      '3h': number;
-    };
-    sys: {
-      pod: string;
-    };
-    dt_txt: string;
-  }>;
-  city: {
-    id: number;
+// WeatherAPI.com Response Interfaces
+interface WeatherAPIResponse {
+  location: {
     name: string;
-    coord: {
-      lat: number;
-      lon: number;
-    };
+    region: string;
     country: string;
-    population: number;
-    timezone: number;
-    sunrise: number;
-    sunset: number;
+    lat: number;
+    lon: number;
+    tz_id: string;
+    localtime_epoch: number;
+    localtime: string;
+  };
+  current: {
+    last_updated_epoch: number;
+    last_updated: string;
+    temp_c: number;
+    temp_f: number;
+    is_day: number;
+    condition: {
+      text: string;
+      icon: string;
+      code: number;
+    };
+    wind_mph: number;
+    wind_kph: number;
+    wind_degree: number;
+    wind_dir: string;
+    pressure_mb: number;
+    pressure_in: number;
+    precip_mm: number;
+    precip_in: number;
+    humidity: number;
+    cloud: number;
+    feelslike_c: number;
+    feelslike_f: number;
+    vis_km: number;
+    vis_miles: number;
+    uv: number;
+    gust_mph: number;
+    gust_kph: number;
   };
 }
 
-// Bản đồ mô tả thời tiết từ tiếng Anh sang tiếng Việt
+interface WeatherAPIForecastResponse {
+  location: {
+    name: string;
+    region: string;
+    country: string;
+    lat: number;
+    lon: number;
+    tz_id: string;
+    localtime_epoch: number;
+    localtime: string;
+  };
+  current: WeatherAPIResponse['current'];
+  forecast: {
+    forecastday: Array<{
+      date: string;
+      date_epoch: number;
+      day: {
+        maxtemp_c: number;
+        maxtemp_f: number;
+        mintemp_c: number;
+        mintemp_f: number;
+        avgtemp_c: number;
+        avgtemp_f: number;
+        maxwind_mph: number;
+        maxwind_kph: number;
+        totalprecip_mm: number;
+        totalprecip_in: number;
+        totalsnow_cm: number;
+        avgvis_km: number;
+        avgvis_miles: number;
+        avghumidity: number;
+        daily_will_it_rain: number;
+        daily_chance_of_rain: number;
+        daily_will_it_snow: number;
+        daily_chance_of_snow: number;
+        condition: {
+          text: string;
+          icon: string;
+          code: number;
+        };
+        uv: number;
+      };
+      astro: {
+        sunrise: string;
+        sunset: string;
+        moonrise: string;
+        moonset: string;
+        moon_phase: string;
+        moon_illumination: string;
+      };
+      hour: Array<{
+        time_epoch: number;
+        time: string;
+        temp_c: number;
+        temp_f: number;
+        is_day: number;
+        condition: {
+          text: string;
+          icon: string;
+          code: number;
+        };
+        wind_mph: number;
+        wind_kph: number;
+        wind_degree: number;
+        wind_dir: string;
+        pressure_mb: number;
+        pressure_in: number;
+        precip_mm: number;
+        precip_in: number;
+        humidity: number;
+        cloud: number;
+        feelslike_c: number;
+        feelslike_f: number;
+        windchill_c: number;
+        windchill_f: number;
+        heatindex_c: number;
+        heatindex_f: number;
+        dewpoint_c: number;
+        dewpoint_f: number;
+        will_it_rain: number;
+        chance_of_rain: number;
+        will_it_snow: number;
+        chance_of_snow: number;
+        vis_km: number;
+        vis_miles: number;
+        gust_mph: number;
+        gust_kph: number;
+        uv: number;
+      }>;
+    }>;
+  };
+}
+
+
+// Bản đồ mô tả thời tiết từ tiếng Anh sang tiếng Việt cho WeatherAPI.com
 const weatherDescriptions: { [key: string]: string } = {
-  'clear sky': '☀️ Trời quang đãng',
-  'few clouds': '🌤️ Ít mây',
-  'scattered clouds': '⛅ Mây rải rác',
-  'broken clouds': '☁️ Nhiều mây',
-  'overcast clouds': '☁️ Trời u ám',
-  'light rain': '🌦️ Mưa nhỏ',
-  'moderate rain': '🌧️ Mưa vừa',
-  'heavy intensity rain': '🌧️ Mưa to',
-  'very heavy rain': '⛈️ Mưa rất to',
-  'extreme rain': '⛈️ Mưa cực lớn',
-  'freezing rain': '🌨️ Mưa đóng băng',
-  'light intensity shower rain': '🌦️ Mưa rào nhẹ',
-  'shower rain': '🌦️ Mưa rào',
-  'heavy intensity shower rain': '⛈️ Mưa rào to',
-  'ragged shower rain': '🌦️ Mưa rào không đều',
-  'thunderstorm': '⛈️ Dông bão',
-  'thunderstorm with light rain': '⛈️ Dông có mưa nhỏ',
-  'thunderstorm with rain': '⛈️ Dông có mưa',
-  'thunderstorm with heavy rain': '⛈️ Dông có mưa to',
-  'light thunderstorm': '🌩️ Dông nhẹ',
-  'heavy thunderstorm': '⛈️ Dông mạnh',
-  'ragged thunderstorm': '⛈️ Dông không đều',
-  'thunderstorm with light drizzle': '🌩️ Dông có mưa phùn',
-  'thunderstorm with drizzle': '⛈️ Dông có mưa phùn',
-  'thunderstorm with heavy drizzle': '⛈️ Dông có mưa phùn to',
-  'light intensity drizzle': '🌦️ Mưa phùn nhẹ',
-  'drizzle': '🌦️ Mưa phùn',
-  'heavy intensity drizzle': '🌧️ Mưa phùn to',
-  'light intensity drizzle rain': '🌦️ Mưa phùn nhẹ',
-  'drizzle rain': '🌦️ Mưa phùn',
-  'heavy intensity drizzle rain': '🌧️ Mưa phùn to',
-  'shower drizzle': '🌦️ Mưa phùn rào',
-  'heavy shower rain and drizzle': '🌧️ Mưa rào và phùn to',
-  'snow': '❄️ Tuyết',
-  'light snow': '🌨️ Tuyết nhẹ',
-  'heavy snow': '❄️ Tuyết to',
-  'sleet': '🌨️ Mưa tuyết',
-  'light shower sleet': '🌨️ Mưa tuyết nhẹ',
-  'shower sleet': '🌨️ Mưa tuyết',
-  'light rain and snow': '🌨️ Mưa và tuyết nhẹ',
-  'rain and snow': '🌨️ Mưa và tuyết',
-  'light shower snow': '🌨️ Tuyết rào nhẹ',
-  'shower snow': '❄️ Tuyết rào',
-  'heavy shower snow': '❄️ Tuyết rào to',
+  // WeatherAPI.com conditions
+  'sunny': '☀️ Nắng đẹp',
+  'clear': '☀️ Trời quang đãng',
+  'partly cloudy': '🌤️ Có mây',
+  'cloudy': '☁️ Nhiều mây',
+  'overcast': '☁️ Trời u ám',
   'mist': '🌫️ Sương mù',
-  'smoke': '💨 Khói',
-  'haze': '🌫️ Sương khô',
-  'sand/dust whirls': '🌪️ Lốc cát/bụi',
+  'patchy rain possible': '🌦️ Có thể có mưa rải rác',
+  'patchy snow possible': '🌨️ Có thể có tuyết rải rác',
+  'patchy sleet possible': '🌨️ Có thể có mưa tuyết',
+  'patchy freezing drizzle possible': '🌨️ Có thể có mưa phùn đóng băng',
+  'thundery outbreaks possible': '⛈️ Có thể có dông',
+  'blowing snow': '❄️ Tuyết thổi',
+  'blizzard': '❄️ Bão tuyết',
   'fog': '🌫️ Sương mù dày',
-  'sand': '🏜️ Cát',
-  'dust': '💨 Bụi',
-  'volcanic ash': '🌋 Tro núi lửa',
-  'squalls': '💨 Gió giật',
-  'tornado': '🌪️ Lốc xoáy'
+  'freezing fog': '🌫️ Sương mù đóng băng',
+  'patchy light drizzle': '🌦️ Mưa phùn nhẹ rải rác',
+  'light drizzle': '🌦️ Mưa phùn nhẹ',
+  'freezing drizzle': '🌨️ Mưa phùn đóng băng',
+  'heavy freezing drizzle': '🌨️ Mưa phùn đóng băng nặng',
+  'patchy light rain': '🌦️ Mưa nhẹ rải rác',
+  'light rain': '🌦️ Mưa nhẹ',
+  'moderate rain at times': '🌧️ Mưa vừa từng đợt',
+  'moderate rain': '🌧️ Mưa vừa',
+  'heavy rain at times': '🌧️ Mưa to từng đợt',
+  'heavy rain': '🌧️ Mưa to',
+  'light freezing rain': '🌨️ Mưa đóng băng nhẹ',
+  'moderate or heavy freezing rain': '🌨️ Mưa đóng băng vừa đến nặng',
+  'light sleet': '🌨️ Mưa tuyết nhẹ',
+  'moderate or heavy sleet': '🌨️ Mưa tuyết vừa đến nặng',
+  'patchy light snow': '🌨️ Tuyết nhẹ rải rác',
+  'light snow': '🌨️ Tuyết nhẹ',
+  'patchy moderate snow': '❄️ Tuyết vừa rải rác',
+  'moderate snow': '❄️ Tuyết vừa',
+  'patchy heavy snow': '❄️ Tuyết nặng rải rác',
+  'heavy snow': '❄️ Tuyết nặng',
+  'ice pellets': '🧊 Mưa đá nhỏ',
+  'light rain shower': '🌦️ Mưa rào nhẹ',
+  'moderate or heavy rain shower': '🌧️ Mưa rào vừa đến to',
+  'torrential rain shower': '⛈️ Mưa rào như trút nước',
+  'light sleet showers': '🌨️ Mưa tuyết rào nhẹ',
+  'moderate or heavy sleet showers': '🌨️ Mưa tuyết rào vừa đến nặng',
+  'light snow showers': '🌨️ Tuyết rào nhẹ',
+  'moderate or heavy snow showers': '❄️ Tuyết rào vừa đến nặng',
+  'light showers of ice pellets': '🧊 Mưa đá rào nhẹ',
+  'moderate or heavy showers of ice pellets': '🧊 Mưa đá rào vừa đến nặng',
+  'patchy light rain with thunder': '⛈️ Mưa nhẹ có sấm sét rải rác',
+  'moderate or heavy rain with thunder': '⛈️ Mưa vừa đến to có sấm sét',
+  'patchy light snow with thunder': '⛈️ Tuyết nhẹ có sấm sét rải rác',
+  'moderate or heavy snow with thunder': '⛈️ Tuyết vừa đến nặng có sấm sét',
 };
 
 // Bản đồ tên thành phố Việt Nam để tối ưu tìm kiếm
@@ -244,8 +295,8 @@ interface NominatimResponse {
   };
 }
 
-// Hàm reverse geocoding sử dụng Nominatim OSM (miễn phí)
-export async function reverseGeocodeNominatim(lat: number, lon: number): Promise<string | null> {
+// Hàm reverse geocoding sử dụng Nominatim OSM (miễn phí) - trả về đầy đủ thông tin
+export async function reverseGeocodeNominatim(lat: number, lon: number): Promise<{ city?: string; country?: string } | null> {
   try {
     // Sử dụng Nominatim OSM - hoàn toàn miễn phí, không cần API key
     const response = await fetch(
@@ -268,14 +319,20 @@ export async function reverseGeocodeNominatim(lat: number, lon: number): Promise
     }
 
     // Ưu tiên lấy tên thành phố/thị trấn
-    const locationName = data.address.city || 
-                        data.address.town || 
-                        data.address.village || 
-                        data.address.municipality ||
-                        data.address.county ||
-                        data.address.state;
+    const city = data.address.city || 
+                 data.address.town || 
+                 data.address.village || 
+                 data.address.municipality ||
+                 data.address.county ||
+                 data.address.state;
 
-    return locationName || null;
+    // Lấy tên quốc gia
+    const country = data.address.country;
+
+    return {
+      city: city || undefined,
+      country: country || undefined
+    };
 
   } catch (error) {
     console.error('Lỗi Nominatim reverse geocoding:', error);
@@ -283,38 +340,15 @@ export async function reverseGeocodeNominatim(lat: number, lon: number): Promise
   }
 }
 
-// Hàm reverse geocoding với fallback methods
+// Hàm reverse geocoding legacy - chỉ trả về city name (để backward compatibility)
+export async function reverseGeocodeNominatimLegacy(lat: number, lon: number): Promise<string | null> {
+  const result = await reverseGeocodeNominatim(lat, lon);
+  return result?.city || null;
+}
+
+// Hàm reverse geocoding (chỉ dùng Nominatim OSM)
 export async function reverseGeocode(lat: number, lon: number): Promise<string | null> {
-  // Method 1: Thử Nominatim OSM trước (miễn phí, tốt nhất)
-  const nominatimResult = await reverseGeocodeNominatim(lat, lon);
-  if (nominatimResult) {
-    return nominatimResult;
-  }
-
-  // Method 2: Fallback về OpenWeatherMap nếu có API key
-  const apiKey = process.env.OPENWEATHER_API_KEY;
-  
-  if (!apiKey) {
-    console.warn('Không có OpenWeatherMap API key để fallback reverse geocoding');
-    return null;
-  }
-
-  try {
-    const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric&lang=vi`;
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const data: WeatherResponse = await response.json();
-    
-    // Trả về tên địa điểm từ OpenWeatherMap
-    return data.name || null;
-  } catch (error) {
-    console.error('Lỗi khi reverse geocoding với OpenWeatherMap:', error);
-    return null;
-  }
+  return await reverseGeocodeNominatimLegacy(lat, lon);
 }
 
 // Hàm chuyển đổi hướng gió thành tiếng Việt
@@ -364,59 +398,72 @@ export async function getWeatherByCoordinates(lat: number, lon: number): Promise
   }
 }
 
-export async function getWeatherData(cityOrLat: string | number, lon?: number): Promise<WeatherData | null> {
-  const apiKey = process.env.OPENWEATHER_API_KEY;
+// Hàm lấy thời tiết từ WeatherAPI.com
+export async function getWeatherDataFromWeatherAPI(cityOrLat: string | number, lon?: number): Promise<WeatherData | null> {
+  const apiKey = process.env.WEATHERAPI_KEY;
   
   if (!apiKey) {
-    throw new Error('OpenWeatherMap API key không được cấu hình');
+    throw new Error('WeatherAPI key không được cấu hình');
   }
 
   try {
-    let url: string;
-    let normalizedCity: string;
+    let query: string;
     
     // Nếu có lon parameter, sử dụng coordinates
     if (typeof cityOrLat === 'number' && lon !== undefined) {
-      url = `https://api.openweathermap.org/data/2.5/weather?lat=${cityOrLat}&lon=${lon}&appid=${apiKey}&units=metric&lang=vi`;
+      query = `${cityOrLat},${lon}`;
     } else {
       // Chuẩn hóa tên thành phố Việt Nam trước khi tìm kiếm
-      normalizedCity = normalizeVietnameseCity(String(cityOrLat));
-      url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(normalizedCity)}&appid=${apiKey}&units=metric&lang=vi`;
+      query = normalizeVietnameseCity(String(cityOrLat));
     }
+    
+    const url = `https://api.weatherapi.com/v1/current.json?key=${apiKey}&q=${encodeURIComponent(query)}&aqi=no&lang=vi`;
+    
+    console.log(`🌤️ Gọi WeatherAPI.com cho: ${query}`);
     
     const response = await fetch(url);
 
     if (!response.ok) {
-      if (response.status === 404) {
-        return null; // Thành phố không tìm thấy
+      if (response.status === 400) {
+        console.log(`❌ Không tìm thấy địa điểm: ${query}`);
+        return null; // Địa điểm không tìm thấy
       }
-      throw new Error(`OpenWeatherMap API error: ${response.status}`);
+      throw new Error(`WeatherAPI error: ${response.status}`);
     }
 
-    const data: WeatherResponse = await response.json();
+    const data: WeatherAPIResponse = await response.json();
 
     // Lấy mô tả thời tiết bằng tiếng Việt
-    const description = weatherDescriptions[data.weather[0].description.toLowerCase()] 
-      || data.weather[0].description;
+    const description = weatherDescriptions[data.current.condition.text.toLowerCase()] 
+      || data.current.condition.text;
+
+    console.log(`✅ WeatherAPI thành công: ${data.location.name}, ${data.location.country}`);
 
     return {
-      name: data.name,
-      country: data.sys.country,
-      temperature: Math.round(data.main.temp),
-      feels_like: Math.round(data.main.feels_like),
-      humidity: data.main.humidity,
-      pressure: data.main.pressure,
+      name: data.location.name,
+      country: data.location.country,
+      temperature: Math.round(data.current.temp_c),
+      feels_like: Math.round(data.current.feelslike_c),
+      humidity: data.current.humidity,
+      pressure: data.current.pressure_mb,
       description,
-      icon: data.weather[0].icon,
-      wind_speed: data.wind.speed,
-      wind_deg: data.wind.deg,
-      visibility: data.visibility
+      icon: data.current.condition.icon,
+      wind_speed: data.current.wind_kph / 3.6, // Convert kph to m/s
+      wind_deg: data.current.wind_degree,
+      visibility: data.current.vis_km * 1000, // Convert km to meters
+      uv_index: data.current.uv
     };
   } catch (error) {
-    console.error('Lỗi khi lấy dữ liệu thời tiết:', error);
+    console.error('Lỗi khi lấy dữ liệu thời tiết từ WeatherAPI:', error);
     throw error;
   }
 }
+
+// Hàm lấy thời tiết chính (chỉ dùng WeatherAPI.com)
+export async function getWeatherData(cityOrLat: string | number, lon?: number): Promise<WeatherData | null> {
+  return await getWeatherDataFromWeatherAPI(cityOrLat, lon);
+}
+
 
 export function formatWeatherMessage(weather: WeatherData, locationName?: string): string {
   const windDirection = getWindDirection(weather.wind_deg);
@@ -439,83 +486,90 @@ ${weather.description}
 _Cập nhật lúc ${new Date().toLocaleString('vi-VN')}_`;
 }
 
-// Hàm lấy dự báo thời tiết 5 ngày
-export async function getWeatherForecast(cityOrLat: string | number, lon?: number): Promise<ForecastResponse | null> {
-  const apiKey = process.env.OPENWEATHER_API_KEY;
+// Hàm lấy dự báo thời tiết từ WeatherAPI.com
+export async function getWeatherForecastFromWeatherAPI(cityOrLat: string | number, lon?: number, days: number = 5): Promise<WeatherAPIForecastResponse | null> {
+  const apiKey = process.env.WEATHERAPI_KEY;
   
   if (!apiKey) {
-    throw new Error('OpenWeatherMap API key không được cấu hình');
+    throw new Error('WeatherAPI key không được cấu hình');
   }
 
   try {
-    let url: string;
+    let query: string;
     
     // Nếu có lon parameter, sử dụng coordinates
     if (typeof cityOrLat === 'number' && lon !== undefined) {
-      url = `https://api.openweathermap.org/data/2.5/forecast?lat=${cityOrLat}&lon=${lon}&appid=${apiKey}&units=metric&lang=vi`;
+      query = `${cityOrLat},${lon}`;
     } else {
-      // Sử dụng tên thành phố
-      url = `https://api.openweathermap.org/data/2.5/forecast?q=${encodeURIComponent(String(cityOrLat))}&appid=${apiKey}&units=metric&lang=vi`;
+      // Chuẩn hóa tên thành phố Việt Nam trước khi tìm kiếm
+      query = normalizeVietnameseCity(String(cityOrLat));
     }
+    
+    const url = `https://api.weatherapi.com/v1/forecast.json?key=${apiKey}&q=${encodeURIComponent(query)}&days=${days}&aqi=no&alerts=no&lang=vi`;
+    
+    console.log(`🌤️ Gọi WeatherAPI forecast cho: ${query}`);
     
     const response = await fetch(url);
 
     if (!response.ok) {
-      if (response.status === 404) {
+      if (response.status === 400) {
+        console.log(`❌ Không tìm thấy địa điểm cho forecast: ${query}`);
         return null;
       }
-      throw new Error(`OpenWeatherMap API error: ${response.status}`);
+      throw new Error(`WeatherAPI forecast error: ${response.status}`);
     }
 
-    return await response.json();
+    const data: WeatherAPIForecastResponse = await response.json();
+    console.log(`✅ WeatherAPI forecast thành công: ${data.location.name}, ${data.location.country}`);
+    
+    return data;
   } catch (error) {
-    console.error('Lỗi khi lấy dự báo thời tiết:', error);
+    console.error('Lỗi khi lấy dự báo thời tiết từ WeatherAPI:', error);
     throw error;
   }
 }
 
-export function formatForecastMessage(forecast: ForecastResponse, locationName?: string): string {
-  const city = forecast.city.name;
-  const country = forecast.city.country;
+// Hàm lấy dự báo thời tiết (chỉ dùng WeatherAPI.com)
+export async function getWeatherForecast(cityOrLat: string | number, lon?: number): Promise<WeatherAPIForecastResponse | null> {
+  return await getWeatherForecastFromWeatherAPI(cityOrLat, lon, 5);
+}
+
+
+// Hàm format forecast message
+export function formatForecastMessage(forecast: WeatherAPIForecastResponse, locationName?: string): string {
+  const city = forecast.location.name;
+  const country = forecast.location.country;
   
   const displayName = locationName || `${city}, ${country}`;
   
   let message = `🌍 **Dự báo thời tiết 5 ngày tại ${displayName}**\n\n`;
   
-  // Nhóm dự báo theo ngày
-  const dailyForecasts: { [key: string]: ForecastResponse['list'] } = {};
-  
-  forecast.list.forEach((item) => {
-    const date = new Date(item.dt * 1000);
-    const dateKey = date.toLocaleDateString('vi-VN');
+  forecast.forecast.forecastday.forEach((day, index) => {
+    const date = new Date(day.date);
+    const dateStr = date.toLocaleDateString('vi-VN');
     
-    if (!dailyForecasts[dateKey]) {
-      dailyForecasts[dateKey] = [];
-    }
-    dailyForecasts[dateKey].push(item);
-  });
-  
-  // Hiển thị dự báo cho từng ngày (chỉ lấy 5 ngày đầu)
-  const dates = Object.keys(dailyForecasts).slice(0, 5);
-  
-  dates.forEach((date, index) => {
-    const dayForecasts = dailyForecasts[date];
-    const midDayForecast = dayForecasts[Math.floor(dayForecasts.length / 2)];
-    
-    const temp = Math.round(midDayForecast.main.temp);
-    const description = weatherDescriptions[midDayForecast.weather[0].description.toLowerCase()] 
-      || midDayForecast.weather[0].description;
+    const maxTemp = Math.round(day.day.maxtemp_c);
+    const minTemp = Math.round(day.day.mintemp_c);
+    const description = weatherDescriptions[day.day.condition.text.toLowerCase()] 
+      || day.day.condition.text;
     
     const dayName = index === 0 ? 'Hôm nay' : 
                    index === 1 ? 'Ngày mai' : 
-                   new Date(midDayForecast.dt * 1000).toLocaleDateString('vi-VN', { weekday: 'long' });
+                   date.toLocaleDateString('vi-VN', { weekday: 'long' });
     
-    message += `📅 **${dayName} (${date})**\n`;
-    message += `${description} - ${temp}°C\n`;
-    message += `💧 Độ ẩm: ${midDayForecast.main.humidity}%\n\n`;
+    message += `📅 **${dayName} (${dateStr})**\n`;
+    message += `${description}\n`;
+    message += `🌡️ ${minTemp}°C - ${maxTemp}°C\n`;
+    message += `💧 Độ ẩm: ${day.day.avghumidity}%\n`;
+    message += `🌧️ Khả năng mưa: ${day.day.daily_chance_of_rain}%\n`;
+    if (day.day.uv > 0) {
+      message += `☀️ Chỉ số UV: ${day.day.uv}\n`;
+    }
+    message += `\n`;
   });
   
   message += `_Cập nhật lúc ${new Date().toLocaleString('vi-VN')}_`;
   
   return message;
 }
+

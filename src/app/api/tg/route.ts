@@ -1262,11 +1262,10 @@ export async function POST(req: NextRequest) {
           }
         }
         
-      return NextResponse.json({ ok: true });
-    }
-
-      // Nếu không có tên thành phố, kiểm tra vị trí đã lưu
-      try {
+        return NextResponse.json({ ok: true });
+      } else {
+        // Nếu không có tên thành phố, kiểm tra vị trí đã lưu
+        try {
         if (currentUser?.location) {
           await sendTypingAction(chatId);
           
@@ -1307,22 +1306,22 @@ export async function POST(req: NextRequest) {
               await sendTelegramMessage(chatId, "❌ Không thể lấy thông tin thời tiết cho vị trí đã lưu!");
             }
           }
-          
-          return NextResponse.json({ ok: true });
+        } else {
+          // Nếu không có vị trí đã lưu, yêu cầu location real-time
+          await requestLocationMessage(
+            String(chatId),
+            "🌤️ <b>Xem thời tiết</b>\n\n" +
+            "Để xem thời tiết, bạn có thể:\n" +
+            "• Chia sẻ vị trí hiện tại (nhấn nút bên dưới)\n" +
+            "• Hoặc gõ: <code>/weather Tên thành phố</code>\n\n" +
+            "📍 <i>Chia sẻ vị trí để có dự báo chính xác nhất!</i>"
+          );
         }
-      } catch (error) {
-        console.error('Error checking saved location:', error);
+        } catch (error) {
+          console.error('Error checking saved location:', error);
+          await sendTelegramMessage(chatId, "❌ Có lỗi khi kiểm tra vị trí đã lưu. Vui lòng thử lại sau!");
+        }
       }
-      
-      // Nếu không có vị trí đã lưu, yêu cầu location real-time
-      await requestLocationMessage(
-        String(chatId),
-        "🌤️ <b>Dự báo thời tiết</b>\n\n" +
-        "Để xem thời tiết, bạn có thể:\n" +
-        "• Chia sẻ vị trí hiện tại (nhấn nút bên dưới)\n" +
-        "• Hoặc gõ: <code>/weather Tên thành phố</code>\n\n" +
-        "📍 <i>Chia sẻ vị trí để có dự báo chính xác nhất!</i>"
-      );
       
       return NextResponse.json({ ok: true });
     }
@@ -1396,11 +1395,28 @@ export async function POST(req: NextRequest) {
     if (/^\/location/.test(text)) {
       try {
         if (currentUser?.location) {
+          // Format tên địa điểm đẹp hơn
+          const cityName = currentUser.location.city || 'Chưa xác định';
+          const countryName = currentUser.location.country || 'Chưa xác định';
+          
+          // Tạo tên địa điểm đầy đủ
+          let fullLocationName = '';
+          if (currentUser.location.city && currentUser.location.country) {
+            fullLocationName = `${currentUser.location.city}, ${currentUser.location.country}`;
+          } else if (currentUser.location.city) {
+            fullLocationName = currentUser.location.city;
+          } else if (currentUser.location.country) {
+            fullLocationName = currentUser.location.country;
+          } else {
+            fullLocationName = `${currentUser.location.latitude.toFixed(4)}, ${currentUser.location.longitude.toFixed(4)}`;
+          }
+
           await sendTelegramMessage(
             chatId,
             `📍 <b>Vị trí đã lưu:</b>\n\n` +
-            `🏙️ <b>Thành phố:</b> ${currentUser.location.city || 'Không rõ'}\n` +
-            `🌍 <b>Quốc gia:</b> ${currentUser.location.country || 'Không rõ'}\n` +
+            `🌏 <b>Địa điểm:</b> ${fullLocationName}\n` +
+            `🏙️ <b>Thành phố:</b> ${cityName}\n` +
+            `🌍 <b>Quốc gia:</b> ${countryName}\n` +
             `📐 <b>Tọa độ:</b> ${currentUser.location.latitude.toFixed(4)}, ${currentUser.location.longitude.toFixed(4)}\n\n` +
             `💡 <i>Sử dụng /weather hoặc /forecast để xem thời tiết cho vị trí này</i>\n\n` +
             `🔄 <i>Để cập nhật vị trí, chia sẻ vị trí mới bất kỳ lúc nào!</i>`

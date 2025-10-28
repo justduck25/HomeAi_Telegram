@@ -19,6 +19,8 @@ interface ImageResult {
   photoId?: string;
   downloadUrl?: string;
   photographerProfile?: string;
+  // Thêm relevance score
+  relevanceScore?: number;
 }
 
 interface SearchResponse {
@@ -248,80 +250,382 @@ class EnhancedSearchService {
     const bufferMultiplier = 1.5;
     const searchCount = Math.ceil(limitedMaxImages * bufferMultiplier);
 
-    // Pexels API - lấy khoảng 60% số ảnh yêu cầu
-    if (this.pexelsApiKey) {
-      try {
-        const pexelsCount = Math.ceil(searchCount * 0.6);
-        const pexelsImages = await this.searchPexels(query, pexelsCount);
-        images.push(...pexelsImages);
-      } catch (error) {
-        console.log("❌ Pexels search failed:", error);
+    // Cải thiện query cho tìm kiếm hình ảnh
+    const enhancedQueries = this.enhanceImageQuery(query);
+    console.log(`🔍 Enhanced queries: ${enhancedQueries.join(', ')}`);
+
+    // Thử từng query cho đến khi có đủ ảnh
+    for (const enhancedQuery of enhancedQueries) {
+      if (images.length >= searchCount) break;
+
+      // Pexels API - lấy khoảng 60% số ảnh yêu cầu
+      if (this.pexelsApiKey && images.length < searchCount) {
+        try {
+          const pexelsCount = Math.ceil((searchCount - images.length) * 0.6);
+          const pexelsImages = await this.searchPexels(enhancedQuery, pexelsCount);
+          images.push(...pexelsImages);
+          console.log(`📸 Pexels found ${pexelsImages.length} images for "${enhancedQuery}"`);
+        } catch (error) {
+          console.log(`❌ Pexels search failed for "${enhancedQuery}":`, error);
+        }
+      }
+
+      // Unsplash API - lấy phần còn lại
+      if (this.unsplashApiKey && images.length < searchCount) {
+        try {
+          const remainingCount = Math.ceil((searchCount - images.length) * 0.4);
+          const unsplashImages = await this.searchUnsplash(enhancedQuery, remainingCount);
+          images.push(...unsplashImages);
+          console.log(`📸 Unsplash found ${unsplashImages.length} images for "${enhancedQuery}"`);
+        } catch (error) {
+          console.log(`❌ Unsplash search failed for "${enhancedQuery}":`, error);
+        }
       }
     }
 
-    // Unsplash API - lấy phần còn lại
-    if (this.unsplashApiKey) {
-      try {
-        const remainingCount = Math.ceil(searchCount * 0.4);
-        const unsplashImages = await this.searchUnsplash(query, remainingCount);
-        images.push(...unsplashImages);
-      } catch (error) {
-        console.log("❌ Unsplash search failed:", error);
-      }
-    }
+    // Loại bỏ duplicates dựa trên URL
+    const uniqueImages = this.deduplicateImages(images);
+    console.log(`🔄 Removed ${images.length - uniqueImages.length} duplicate images`);
 
     // Validate tất cả ảnh
-    console.log(`🔍 Validating ${images.length} images...`);
-    let validImages = await this.validateAndFilterImages(images);
-    console.log(`✅ Found ${validImages.length} valid images out of ${images.length}`);
+    console.log(`🔍 Validating ${uniqueImages.length} images...`);
+    let validImages = await this.validateAndFilterImages(uniqueImages);
+    console.log(`✅ Found ${validImages.length} valid images out of ${uniqueImages.length}`);
     
-    // Nếu không đủ ảnh hợp lệ, thử lấy thêm từ APIs
-    if (validImages.length < limitedMaxImages) {
-      console.log(`🔄 Need more images. Fetching additional images...`);
+    // Score và sort theo relevance
+    const scoredImages = this.scoreImageRelevance(validImages, query);
+    const sortedImages = scoredImages.sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
+    
+    // Nếu không đủ ảnh hợp lệ, thử lấy thêm từ APIs với fallback queries
+    if (sortedImages.length < limitedMaxImages) {
+      console.log(`🔄 Need more images (${sortedImages.length}/${limitedMaxImages}), trying fallback searches...`);
       
-      const additionalNeeded = limitedMaxImages - validImages.length;
+      const fallbackQueries = this.getFallbackQueries(query);
       const additionalImages: ImageResult[] = [];
       
-      // Lấy thêm từ Pexels
-      if (this.pexelsApiKey && additionalNeeded > 0) {
-        try {
-          const extraPexels = await this.searchPexels(query, additionalNeeded + 2);
-          // Filter out ảnh đã có
-          const newPexels = extraPexels.filter(img => 
-            !validImages.some(existing => existing.url === img.url)
-          );
-          additionalImages.push(...newPexels);
-        } catch (error) {
-          console.log("❌ Additional Pexels search failed:", error);
+      for (const fallbackQuery of fallbackQueries) {
+        if (sortedImages.length + additionalImages.length >= limitedMaxImages) break;
+        
+        const remainingCount = limitedMaxImages - sortedImages.length - additionalImages.length;
+        
+        // Thử Pexels với fallback query
+        if (this.pexelsApiKey) {
+          try {
+            const pexelsImages = await this.searchPexels(fallbackQuery, Math.ceil(remainingCount * 0.6));
+            const newImages = pexelsImages.filter(newImg => 
+              !sortedImages.some(existingImg => existingImg.url === newImg.url) &&
+              !additionalImages.some(existingImg => existingImg.url === newImg.url)
+            );
+            additionalImages.push(...newImages);
+          } catch (error) {
+            console.log(`❌ Fallback Pexels search failed for "${fallbackQuery}":`, error);
+          }
+        }
+        
+        // Thử Unsplash với fallback query
+        if (this.unsplashApiKey && additionalImages.length < remainingCount) {
+          try {
+            const unsplashImages = await this.searchUnsplash(fallbackQuery, Math.ceil(remainingCount * 0.4));
+            const newImages = unsplashImages.filter(newImg => 
+              !sortedImages.some(existingImg => existingImg.url === newImg.url) &&
+              !additionalImages.some(existingImg => existingImg.url === newImg.url)
+            );
+            additionalImages.push(...newImages);
+          } catch (error) {
+            console.log(`❌ Fallback Unsplash search failed for "${fallbackQuery}":`, error);
+          }
         }
       }
       
-      // Lấy thêm từ Unsplash nếu vẫn chưa đủ
-      if (this.unsplashApiKey && additionalImages.length < additionalNeeded) {
-        try {
-          const extraUnsplash = await this.searchUnsplash(query, additionalNeeded + 2);
-          // Filter out ảnh đã có
-          const newUnsplash = extraUnsplash.filter(img => 
-            !validImages.some(existing => existing.url === img.url) &&
-            !additionalImages.some(existing => existing.url === img.url)
-          );
-          additionalImages.push(...newUnsplash);
-        } catch (error) {
-          console.log("❌ Additional Unsplash search failed:", error);
-        }
-      }
-      
-      // Validate ảnh bổ sung
+      // Validate additional images
       if (additionalImages.length > 0) {
-        console.log(`🔍 Validating ${additionalImages.length} additional images...`);
-        const validAdditional = await this.validateAndFilterImages(additionalImages);
-        validImages.push(...validAdditional);
-        console.log(`✅ Added ${validAdditional.length} more valid images`);
+        const additionalValidImages = await this.validateAndFilterImages(additionalImages);
+        const scoredAdditionalImages = this.scoreImageRelevance(additionalValidImages, query);
+        sortedImages.push(...scoredAdditionalImages);
+        console.log(`✅ Found ${additionalValidImages.length} additional valid images`);
       }
     }
     
-    // Trả về đúng số lượng yêu cầu
-    return validImages.slice(0, limitedMaxImages);
+    // Trả về đúng số lượng yêu cầu, đã được sort theo relevance
+    return sortedImages.slice(0, limitedMaxImages);
+  }
+
+  // Cải thiện query cho tìm kiếm hình ảnh
+  private enhanceImageQuery(query: string): string[] {
+    const queries: string[] = [];
+    const originalQuery = query.toLowerCase().trim();
+    
+    // Dictionary dịch từ tiếng Việt sang tiếng Anh
+    const vietnameseToEnglish: { [key: string]: string[] } = {
+      'mèo': ['cat', 'kitten', 'feline'],
+      'chó': ['dog', 'puppy', 'canine'],
+      'hoa': ['flower', 'blossom', 'bloom'],
+      'cây': ['tree', 'plant'],
+      'biển': ['sea', 'ocean', 'beach'],
+      'núi': ['mountain', 'hill'],
+      'trời': ['sky', 'cloud'],
+      'mặt trời': ['sun', 'sunshine', 'sunlight'],
+      'mặt trăng': ['moon', 'moonlight'],
+      'sao': ['star', 'starry'],
+      'xe': ['car', 'vehicle', 'automobile'],
+      'nhà': ['house', 'home', 'building'],
+      'thức ăn': ['food', 'meal', 'cuisine'],
+      'đồ ăn': ['food', 'meal', 'dish'],
+      'cơm': ['rice', 'meal'],
+      'phở': ['pho', 'vietnamese noodle soup'],
+      'bánh mì': ['banh mi', 'vietnamese sandwich'],
+      'cà phê': ['coffee', 'cafe'],
+      'trà': ['tea'],
+      'nước': ['water', 'liquid'],
+      'lửa': ['fire', 'flame'],
+      'đá': ['ice', 'stone', 'rock'],
+      'gió': ['wind', 'breeze'],
+      'mưa': ['rain', 'rainfall'],
+      'tuyết': ['snow', 'snowfall'],
+      'người': ['person', 'people', 'human'],
+      'trẻ em': ['children', 'kids'],
+      'em bé': ['baby', 'infant'],
+      'gia đình': ['family'],
+      'bạn bè': ['friends', 'friendship'],
+      'yêu': ['love', 'romantic'],
+      'hạnh phúc': ['happy', 'happiness', 'joy'],
+      'buồn': ['sad', 'sadness'],
+      'đẹp': ['beautiful', 'beauty', 'pretty'],
+      'dễ thương': ['cute', 'adorable'],
+      'màu đỏ': ['red color'],
+      'màu xanh': ['blue color', 'green color'],
+      'màu vàng': ['yellow color'],
+      'màu hồng': ['pink color'],
+      'màu tím': ['purple color'],
+      'màu cam': ['orange color'],
+      'màu đen': ['black color'],
+      'màu trắng': ['white color'],
+      'thiên nhiên': ['nature', 'natural'],
+      'động vật': ['animal', 'wildlife'],
+      'chim': ['bird', 'avian'],
+      'cá': ['fish', 'aquatic'],
+      'bướm': ['butterfly'],
+      'hổ': ['tiger'],
+      'sư tử': ['lion'],
+      'voi': ['elephant'],
+      'gấu': ['bear'],
+      'thỏ': ['rabbit', 'bunny'],
+      'công nghệ': ['technology', 'tech'],
+      'máy tính': ['computer', 'laptop'],
+      'điện thoại': ['phone', 'smartphone', 'mobile'],
+      'xe hơi': ['car', 'automobile'],
+      'máy bay': ['airplane', 'aircraft'],
+      'tàu': ['ship', 'boat'],
+      'xe đạp': ['bicycle', 'bike'],
+      'thể thao': ['sport', 'sports'],
+      'bóng đá': ['football', 'soccer'],
+      'bóng rổ': ['basketball'],
+      'tennis': ['tennis'],
+      'bơi lội': ['swimming', 'pool'],
+      'chạy': ['running', 'jogging'],
+      'yoga': ['yoga', 'meditation'],
+      'gym': ['gym', 'fitness', 'workout'],
+      'du lịch': ['travel', 'tourism', 'vacation'],
+      'nghỉ dưỡng': ['resort', 'vacation', 'holiday'],
+      'khách sạn': ['hotel', 'accommodation'],
+      'nhà hàng': ['restaurant', 'dining'],
+      'quán cà phê': ['cafe', 'coffee shop'],
+      'công viên': ['park', 'garden'],
+      'bảo tàng': ['museum'],
+      'thư viện': ['library'],
+      'trường học': ['school', 'education'],
+      'bệnh viện': ['hospital', 'medical'],
+      'văn phòng': ['office', 'workplace'],
+      'cửa hàng': ['shop', 'store', 'retail'],
+      'chợ': ['market', 'marketplace'],
+      'siêu thị': ['supermarket', 'grocery'],
+      'thời trang': ['fashion', 'style'],
+      'quần áo': ['clothing', 'clothes', 'apparel'],
+      'giày': ['shoes', 'footwear'],
+      'túi xách': ['bag', 'handbag', 'purse'],
+      'đồng hồ': ['watch', 'clock', 'timepiece'],
+      'trang sức': ['jewelry', 'accessories'],
+      'kính': ['glasses', 'eyewear'],
+      'mũ': ['hat', 'cap'],
+      'áo': ['shirt', 'top', 'clothing'],
+      'quần': ['pants', 'trousers'],
+      'váy': ['dress', 'skirt'],
+      'âm nhạc': ['music', 'musical'],
+      'nhạc cụ': ['musical instrument'],
+      'guitar': ['guitar'],
+      'piano': ['piano'],
+      'trống': ['drums'],
+      'violin': ['violin'],
+      'ca sĩ': ['singer', 'vocalist'],
+      'nghệ sĩ': ['artist', 'performer'],
+      'hội họa': ['painting', 'art'],
+      'điêu khắc': ['sculpture'],
+      'nhiếp ảnh': ['photography', 'photo'],
+      'phim': ['movie', 'cinema', 'film'],
+      'truyền hình': ['television', 'tv'],
+      'sách': ['book', 'reading'],
+      'báo': ['newspaper', 'news'],
+      'tạp chí': ['magazine'],
+      'internet': ['internet', 'online', 'web'],
+      'mạng xã hội': ['social media', 'social network'],
+      'game': ['game', 'gaming', 'video game'],
+      'trò chơi': ['game', 'play', 'toy']
+    };
+
+    // Synonyms và related terms cho tiếng Anh
+    const englishSynonyms: { [key: string]: string[] } = {
+      'cat': ['kitten', 'feline', 'kitty', 'tabby', 'persian cat', 'siamese cat'],
+      'dog': ['puppy', 'canine', 'doggy', 'golden retriever', 'labrador', 'bulldog'],
+      'flower': ['blossom', 'bloom', 'floral', 'rose', 'tulip', 'sunflower', 'daisy'],
+      'tree': ['forest', 'oak', 'pine', 'maple', 'birch', 'palm tree'],
+      'car': ['automobile', 'vehicle', 'sedan', 'suv', 'sports car'],
+      'food': ['meal', 'cuisine', 'dish', 'delicious', 'gourmet'],
+      'nature': ['landscape', 'scenic', 'wilderness', 'outdoor'],
+      'beautiful': ['gorgeous', 'stunning', 'pretty', 'elegant', 'lovely'],
+      'cute': ['adorable', 'sweet', 'charming', 'lovely'],
+      'happy': ['joyful', 'cheerful', 'smiling', 'celebration']
+    };
+
+    // 1. Thêm query gốc
+    queries.push(originalQuery);
+
+    // 2. Dịch từ tiếng Việt sang tiếng Anh
+    for (const [vietnamese, englishTerms] of Object.entries(vietnameseToEnglish)) {
+      if (originalQuery.includes(vietnamese)) {
+        // Thêm các từ tiếng Anh tương ứng
+        englishTerms.forEach(englishTerm => {
+          const translatedQuery = originalQuery.replace(vietnamese, englishTerm);
+          queries.push(translatedQuery);
+        });
+        
+        // Thêm chỉ từ tiếng Anh (không có context tiếng Việt)
+        englishTerms.forEach(englishTerm => {
+          queries.push(englishTerm);
+        });
+      }
+    }
+
+    // 3. Mở rộng từ khóa tiếng Anh với synonyms
+    const words = originalQuery.split(' ');
+    for (const word of words) {
+      if (englishSynonyms[word]) {
+        englishSynonyms[word].forEach(synonym => {
+          queries.push(synonym);
+          // Thay thế trong context
+          const expandedQuery = originalQuery.replace(word, synonym);
+          queries.push(expandedQuery);
+        });
+      }
+    }
+
+    // 4. Thêm generic fallbacks cho các từ khóa phổ biến
+    if (originalQuery.includes('mèo') || originalQuery.includes('cat')) {
+      queries.push('cute cat', 'beautiful cat', 'cat portrait', 'domestic cat');
+    }
+    if (originalQuery.includes('chó') || originalQuery.includes('dog')) {
+      queries.push('cute dog', 'beautiful dog', 'dog portrait', 'happy dog');
+    }
+    if (originalQuery.includes('hoa') || originalQuery.includes('flower')) {
+      queries.push('beautiful flowers', 'colorful flowers', 'flower garden', 'blooming flowers');
+    }
+
+    // 5. Loại bỏ duplicates và giữ thứ tự ưu tiên
+    const uniqueQueries = [...new Set(queries)];
+    
+    // 6. Sắp xếp theo độ ưu tiên (query gốc và dịch trước, synonyms sau)
+    const prioritizedQueries = uniqueQueries.slice(0, 5); // Giới hạn 5 queries để tránh quá nhiều requests
+    
+    console.log(`🔄 Original query: "${originalQuery}" -> Enhanced to ${prioritizedQueries.length} queries`);
+    return prioritizedQueries;
+  }
+
+  // Loại bỏ ảnh trùng lặp dựa trên URL
+  private deduplicateImages(images: ImageResult[]): ImageResult[] {
+    const seen = new Set<string>();
+    return images.filter(image => {
+      if (seen.has(image.url)) {
+        return false;
+      }
+      seen.add(image.url);
+      return true;
+    });
+  }
+
+  // Tính điểm relevance cho ảnh
+  private scoreImageRelevance(images: ImageResult[], originalQuery: string): ImageResult[] {
+    const queryWords = originalQuery.toLowerCase().split(' ').filter(word => word.length > 2);
+    
+    return images.map(image => {
+      let score = 0;
+      const altText = (image.alt || '').toLowerCase();
+      const photographer = (image.photographer || '').toLowerCase();
+      
+      // Điểm cơ bản dựa trên alt text
+      queryWords.forEach(word => {
+        if (altText.includes(word)) {
+          score += 10; // Exact match trong alt text
+        }
+        // Partial match
+        if (altText.includes(word.substring(0, Math.max(3, word.length - 1)))) {
+          score += 5;
+        }
+      });
+      
+      // Bonus điểm cho ảnh có alt text chi tiết
+      if (altText.length > 20) {
+        score += 2;
+      }
+      
+      // Bonus điểm cho ảnh có photographer name (thường chất lượng cao hơn)
+      if (photographer && photographer.length > 0) {
+        score += 1;
+      }
+      
+      // Bonus điểm cho ảnh có kích thước hợp lý
+      if (image.width && image.height) {
+        if (image.width >= 800 && image.height >= 600) {
+          score += 3; // High resolution
+        } else if (image.width >= 400 && image.height >= 300) {
+          score += 1; // Medium resolution
+        }
+      }
+      
+      // Bonus điểm cho source uy tín
+      if (image.source === 'unsplash') {
+        score += 2; // Unsplash thường có ảnh chất lượng cao hơn
+      } else if (image.source === 'pexels') {
+        score += 1;
+      }
+      
+      return {
+        ...image,
+        relevanceScore: score
+      };
+    });
+  }
+
+  // Tạo fallback queries khi không tìm thấy đủ ảnh
+  private getFallbackQueries(originalQuery: string): string[] {
+    const fallbacks: string[] = [];
+    const query = originalQuery.toLowerCase();
+    
+    // Generic fallbacks cho các từ khóa phổ biến
+    if (query.includes('mèo') || query.includes('cat')) {
+      fallbacks.push('cute animals', 'pets', 'domestic animals', 'adorable cat');
+    } else if (query.includes('chó') || query.includes('dog')) {
+      fallbacks.push('cute animals', 'pets', 'domestic animals', 'happy dog');
+    } else if (query.includes('hoa') || query.includes('flower')) {
+      fallbacks.push('nature', 'garden', 'colorful', 'spring');
+    } else if (query.includes('thiên nhiên') || query.includes('nature')) {
+      fallbacks.push('landscape', 'outdoor', 'scenic', 'wilderness');
+    } else if (query.includes('đẹp') || query.includes('beautiful')) {
+      fallbacks.push('aesthetic', 'gorgeous', 'stunning', 'pretty');
+    } else {
+      // Generic fallbacks
+      fallbacks.push('beautiful', 'colorful', 'high quality', 'professional');
+    }
+    
+    return fallbacks.slice(0, 3); // Giới hạn 3 fallback queries
   }
 
   // Pexels API - Hình ảnh chất lượng cao
