@@ -12,6 +12,7 @@ import {
 } from "@/lib/database";
 import { textToSpeech, textToSpeechLong, sendVoiceMessage, sendRecordingAction, isTextSuitableForTTS } from "@/lib/text-to-speech";
 import { getWeatherData, formatWeatherMessage, getWeatherForecast, formatForecastMessage, getWeatherByCoordinates } from "@/lib/weather";
+import { saveUserLocation } from "@/lib/location";
 import { searchService } from "@/lib/searchService";
 
 // Sử dụng Node.js runtime để tương thích với SDK
@@ -1255,8 +1256,26 @@ export async function POST(req: NextRequest) {
           }
         } catch (error) {
           console.error('Lỗi lấy thời tiết:', error);
-          if (error instanceof Error && error.message.includes('API key')) {
-            await sendTelegramMessage(chatId, "❌ Tính năng thời tiết chưa được cấu hình. Vui lòng liên hệ admin!");
+          if (error instanceof Error) {
+            if (error.message.includes('không được cấu hình') || error.message.includes('không hợp lệ')) {
+              await sendTelegramMessage(chatId, "❌ **Lỗi cấu hình WeatherAPI**\n\n" +
+                "Tính năng thời tiết cần WeatherAPI key để hoạt động.\n\n" +
+                "**Hướng dẫn setup:**\n" +
+                "1. Truy cập: https://www.weatherapi.com/\n" +
+                "2. Đăng ký tài khoản miễn phí\n" +
+                "3. Lấy API key từ Dashboard\n" +
+                "4. Thêm vào file .env.local: `WEATHERAPI_KEY=your_key_here`\n\n" +
+                "💡 Free tier: 1 triệu calls/tháng");
+            } else if (error.message.includes('hết quota') || error.message.includes('bị khóa')) {
+              await sendTelegramMessage(chatId, "❌ **WeatherAPI hết quota**\n\n" +
+                "API key đã hết quota hoặc bị khóa.\n\n" +
+                "**Giải pháp:**\n" +
+                "• Kiểm tra usage tại: https://www.weatherapi.com/\n" +
+                "• Đợi reset quota (đầu tháng)\n" +
+                "• Upgrade plan nếu cần");
+            } else {
+              await sendTelegramMessage(chatId, "❌ Có lỗi khi lấy thông tin thời tiết. Vui lòng thử lại sau!");
+            }
           } else {
             await sendTelegramMessage(chatId, "❌ Có lỗi khi lấy thông tin thời tiết. Vui lòng thử lại sau!");
           }
@@ -1310,11 +1329,11 @@ export async function POST(req: NextRequest) {
           // Nếu không có vị trí đã lưu, yêu cầu location real-time
           await requestLocationMessage(
             String(chatId),
-            "🌤️ <b>Xem thời tiết</b>\n\n" +
+            "🌤️ **Xem thời tiết**\n\n" +
             "Để xem thời tiết, bạn có thể:\n" +
             "• Chia sẻ vị trí hiện tại (nhấn nút bên dưới)\n" +
-            "• Hoặc gõ: <code>/weather Tên thành phố</code>\n\n" +
-            "📍 <i>Chia sẻ vị trí để có dự báo chính xác nhất!</i>"
+            "• Hoặc gõ: `/weather Tên thành phố`\n\n" +
+            "📍 *Chia sẻ vị trí để có dự báo chính xác nhất!*"
           );
         }
         } catch (error) {
@@ -1346,8 +1365,26 @@ export async function POST(req: NextRequest) {
           }
         } catch (error) {
           console.error('Lỗi lấy dự báo thời tiết:', error);
-          if (error instanceof Error && error.message.includes('API key')) {
-            await sendTelegramMessage(chatId, "❌ Tính năng dự báo thời tiết chưa được cấu hình. Vui lòng liên hệ admin!");
+          if (error instanceof Error) {
+            if (error.message.includes('không được cấu hình') || error.message.includes('không hợp lệ')) {
+              await sendTelegramMessage(chatId, "❌ **Lỗi cấu hình WeatherAPI**\n\n" +
+                "Tính năng dự báo thời tiết cần WeatherAPI key để hoạt động.\n\n" +
+                "**Hướng dẫn setup:**\n" +
+                "1. Truy cập: https://www.weatherapi.com/\n" +
+                "2. Đăng ký tài khoản miễn phí\n" +
+                "3. Lấy API key từ Dashboard\n" +
+                "4. Thêm vào file .env.local: `WEATHERAPI_KEY=your_key_here`\n\n" +
+                "💡 Free tier: 1 triệu calls/tháng");
+            } else if (error.message.includes('hết quota') || error.message.includes('bị khóa')) {
+              await sendTelegramMessage(chatId, "❌ **WeatherAPI hết quota**\n\n" +
+                "API key đã hết quota hoặc bị khóa.\n\n" +
+                "**Giải pháp:**\n" +
+                "• Kiểm tra usage tại: https://www.weatherapi.com/\n" +
+                "• Đợi reset quota (đầu tháng)\n" +
+                "• Upgrade plan nếu cần");
+            } else {
+              await sendTelegramMessage(chatId, "❌ Có lỗi khi lấy dự báo thời tiết. Vui lòng thử lại sau!");
+            }
           } else {
             await sendTelegramMessage(chatId, "❌ Có lỗi khi lấy dự báo thời tiết. Vui lòng thử lại sau!");
           }
@@ -1381,11 +1418,11 @@ export async function POST(req: NextRequest) {
       // Nếu không có vị trí đã lưu, yêu cầu location real-time
       await requestLocationMessage(
         String(chatId),
-        "🌤️ <b>Dự báo thời tiết 5 ngày</b>\n\n" +
+        "🌤️ **Dự báo thời tiết 5 ngày**\n\n" +
         "Để xem dự báo, bạn có thể:\n" +
         "• Chia sẻ vị trí hiện tại (nhấn nút bên dưới)\n" +
-        "• Hoặc gõ: <code>/forecast Tên thành phố</code>\n\n" +
-        "📍 <i>Chia sẻ vị trí để có dự báo chính xác nhất!</i>"
+        "• Hoặc gõ: `/forecast Tên thành phố`\n\n" +
+        "📍 *Chia sẻ vị trí để có dự báo chính xác nhất!*"
       );
       
       return NextResponse.json({ ok: true });
@@ -1413,23 +1450,23 @@ export async function POST(req: NextRequest) {
 
           await sendTelegramMessage(
             chatId,
-            `📍 <b>Vị trí đã lưu:</b>\n\n` +
-            `🌏 <b>Địa điểm:</b> ${fullLocationName}\n` +
-            `🏙️ <b>Thành phố:</b> ${cityName}\n` +
-            `🌍 <b>Quốc gia:</b> ${countryName}\n` +
-            `📐 <b>Tọa độ:</b> ${currentUser.location.latitude.toFixed(4)}, ${currentUser.location.longitude.toFixed(4)}\n\n` +
-            `💡 <i>Sử dụng /weather hoặc /forecast để xem thời tiết cho vị trí này</i>\n\n` +
-            `🔄 <i>Để cập nhật vị trí, chia sẻ vị trí mới bất kỳ lúc nào!</i>`
+            `📍 **Vị trí đã lưu:**\n\n` +
+            `🌏 **Địa điểm:** ${fullLocationName}\n` +
+            `🏙️ **Thành phố:** ${cityName}\n` +
+            `🌍 **Quốc gia:** ${countryName}\n` +
+            `📐 **Tọa độ:** ${currentUser.location.latitude.toFixed(4)}, ${currentUser.location.longitude.toFixed(4)}\n\n` +
+            `💡 *Sử dụng /weather hoặc /forecast để xem thời tiết cho vị trí này*\n\n` +
+            `🔄 *Để cập nhật vị trí, chia sẻ vị trí mới bất kỳ lúc nào!*`
           );
         } else {
           await requestLocationMessage(
             String(chatId),
-            "📍 <b>Quản lý vị trí</b>\n\n" +
+            "📍 **Quản lý vị trí**\n\n" +
             "Bạn chưa lưu vị trí nào. Chia sẻ vị trí hiện tại để:\n" +
             "• Xem thời tiết nhanh chóng\n" +
             "• Không cần nhập tên thành phố mỗi lần\n" +
             "• Có dự báo chính xác nhất\n\n" +
-            "📍 <i>Nhấn nút bên dưới để chia sẻ vị trí!</i>"
+            "📍 *Nhấn nút bên dưới để chia sẻ vị trí!*"
           );
         }
       } catch (error) {
@@ -1460,11 +1497,11 @@ export async function POST(req: NextRequest) {
           });
           await sendTelegramMessage(
             chatId,
-            "✅ <b>Đã bật thông báo thời tiết hàng ngày!</b>\n\n" +
+            "✅ **Đã bật thông báo thời tiết hàng ngày!**\n\n" +
             "🌅 Bạn sẽ nhận được dự báo thời tiết lúc 6:00 sáng mỗi ngày\n" +
             "📍 Thông báo sẽ dựa trên vị trí đã lưu của bạn\n\n" +
-            "💡 <i>Hãy đảm bảo đã chia sẻ vị trí bằng lệnh /location</i>\n\n" +
-            "🔕 Để tắt: <code>/daily off</code>"
+            "💡 *Hãy đảm bảo đã chia sẻ vị trí bằng lệnh /location*\n\n" +
+            "🔕 Để tắt: `/daily off`"
           );
         } else if (subCommand === 'off' || subCommand === 'tắt') {
           // Tắt thông báo hàng ngày
@@ -1476,45 +1513,45 @@ export async function POST(req: NextRequest) {
           });
           await sendTelegramMessage(
             chatId,
-            "🔕 <b>Đã tắt thông báo thời tiết hàng ngày!</b>\n\n" +
+            "🔕 **Đã tắt thông báo thời tiết hàng ngày!**\n\n" +
             "Bạn sẽ không còn nhận thông báo tự động nữa.\n\n" +
-            "🔔 Để bật lại: <code>/daily on</code>"
+            "🔔 Để bật lại: `/daily on`"
           );
         } else if (subCommand === 'status' || subCommand === 'trạng thái' || subCommand === '') {
           // Kiểm tra trạng thái
           const isEnabled = currentUser.preferences.dailyWeather;
           const hasLocation = currentUser.location?.latitude && currentUser.location?.longitude;
           
-          let statusMessage = `📊 <b>Trạng thái thông báo hàng ngày:</b>\n\n`;
-          statusMessage += `🔔 <b>Thông báo:</b> ${isEnabled ? '✅ Đã bật' : '❌ Đã tắt'}\n`;
-          statusMessage += `📍 <b>Vị trí:</b> ${hasLocation ? '✅ Đã lưu' : '❌ Chưa lưu'}\n`;
-          statusMessage += `⏰ <b>Thời gian:</b> 6:00 sáng mỗi ngày\n\n`;
+          let statusMessage = `📊 **Trạng thái thông báo hàng ngày:**\n\n`;
+          statusMessage += `🔔 **Thông báo:** ${isEnabled ? '✅ Đã bật' : '❌ Đã tắt'}\n`;
+          statusMessage += `📍 **Vị trí:** ${hasLocation ? '✅ Đã lưu' : '❌ Chưa lưu'}\n`;
+          statusMessage += `⏰ **Thời gian:** 6:00 sáng mỗi ngày\n\n`;
           
           if (isEnabled && hasLocation && currentUser.location) {
             const locationName = formatUserLocationName(currentUser.location);
-            statusMessage += `🌍 <b>Vị trí hiện tại:</b> ${locationName}\n\n`;
-            statusMessage += `✅ <i>Mọi thứ đã sẵn sàng! Bạn sẽ nhận thông báo thời tiết hàng ngày.</i>`;
+            statusMessage += `🌍 **Vị trí hiện tại:** ${locationName}\n\n`;
+            statusMessage += `✅ *Mọi thứ đã sẵn sàng! Bạn sẽ nhận thông báo thời tiết hàng ngày.*`;
           } else if (isEnabled && !hasLocation) {
-            statusMessage += `⚠️ <i>Cần chia sẻ vị trí để nhận thông báo. Sử dụng /location</i>`;
+            statusMessage += `⚠️ *Cần chia sẻ vị trí để nhận thông báo. Sử dụng /location*`;
           } else {
-            statusMessage += `💡 <i>Sử dụng /daily on để bật thông báo</i>`;
+            statusMessage += `💡 *Sử dụng /daily on để bật thông báo*`;
           }
           
-          statusMessage += `\n\n📋 <b>Lệnh:</b>\n`;
-          statusMessage += `• <code>/daily on</code> - Bật thông báo\n`;
-          statusMessage += `• <code>/daily off</code> - Tắt thông báo\n`;
-          statusMessage += `• <code>/daily status</code> - Xem trạng thái`;
+          statusMessage += `\n\n📋 **Lệnh:**\n`;
+          statusMessage += `• \`/daily on\` - Bật thông báo\n`;
+          statusMessage += `• \`/daily off\` - Tắt thông báo\n`;
+          statusMessage += `• \`/daily status\` - Xem trạng thái`;
           
           await sendTelegramMessage(chatId, statusMessage);
         } else {
           await sendTelegramMessage(
             chatId,
-            "❌ <b>Lệnh không hợp lệ!</b>\n\n" +
-            "📋 <b>Cách sử dụng:</b>\n" +
-            "• <code>/daily on</code> - Bật thông báo hàng ngày\n" +
-            "• <code>/daily off</code> - Tắt thông báo hàng ngày\n" +
-            "• <code>/daily status</code> - Xem trạng thái hiện tại\n\n" +
-            "🌅 <i>Thông báo sẽ được gửi lúc 6:00 sáng mỗi ngày</i>"
+            "❌ **Lệnh không hợp lệ!**\n\n" +
+            "📋 **Cách sử dụng:**\n" +
+            "• `/daily on` - Bật thông báo hàng ngày\n" +
+            "• `/daily off` - Tắt thông báo hàng ngày\n" +
+            "• `/daily status` - Xem trạng thái hiện tại\n\n" +
+            "🌅 *Thông báo sẽ được gửi lúc 6:00 sáng mỗi ngày*"
           );
         }
       } catch (error) {
@@ -1528,7 +1565,7 @@ export async function POST(req: NextRequest) {
     // Xử lý location message (vị trí real-time)
     if (message.location) {
       await sendTypingAction(chatId);
-      await sendTelegramMessage(chatId, "📍 Đã nhận vị trí! Đang lấy thông tin thời tiết...");
+      await sendTelegramMessage(chatId, "📍 Đã nhận vị trí! Đang xử lý và lấy thông tin thời tiết...");
       
       try {
         if (!userId) {
@@ -1536,36 +1573,38 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: true });
         }
 
-        const location = {
+        const locationData = {
           latitude: message.location.latitude,
-          longitude: message.location.longitude,
-          city: undefined, // Will be filled by reverse geocoding if needed
-          country: undefined
+          longitude: message.location.longitude
         };
         
-        // Lưu vị trí vào user database
-        await updateUser(userId, { location });
+        // Lưu vị trí với reverse geocoding đầy đủ (city + country)
+        const userInfo = {
+          firstName: message.from?.first_name,
+          lastName: message.from?.last_name,
+          username: message.from?.username
+        };
+        
+        console.log(`📍 Processing location: ${locationData.latitude}, ${locationData.longitude}`);
+        const updatedUser = await saveUserLocation(String(userId), locationData, userInfo);
         
         // Lấy thời tiết với reverse geocoding
-        const result = await getWeatherByCoordinates(location.latitude, location.longitude);
+        const result = await getWeatherByCoordinates(locationData.latitude, locationData.longitude);
         
         if (result) {
           const { weatherData, cityName } = result;
           
-          // Cập nhật location với tên thành phố đã reverse geocode
-          const updatedLocation = {
-            ...location,
-            city: cityName
-          };
-          if (userId) {
-            await updateUser(userId, { location: updatedLocation });
-          }
+          // Tạo tên địa điểm từ thông tin đã lưu
+          const savedLocation = updatedUser.location;
+          const displayName = savedLocation ? 
+            formatUserLocationName(savedLocation) : 
+            cityName;
           
-          const weatherMessage = formatWeatherMessage(weatherData, cityName);
+          const weatherMessage = formatWeatherMessage(weatherData, displayName);
           
           await sendTelegramMessage(
             chatId, 
-            `${weatherMessage}\n\n💾 <i>Vị trí "${cityName}" đã được lưu để sử dụng cho lần sau!</i>`
+            `${weatherMessage}\n\n💾 *Vị trí "${displayName}" đã được lưu để sử dụng cho lần sau!*`
           );
         } else {
           await sendTelegramMessage(chatId, "❌ Không thể lấy thông tin thời tiết cho vị trí này!");
