@@ -28,7 +28,7 @@ export default function Home() {
               </h1>
             </div>
             <p className="text-xl text-gray-600 dark:text-gray-300 max-w-2xl">
-              Bot Telegram thông minh được hỗ trợ bởi Groq AI (Llama 3)
+              Bot Telegram thông minh được hỗ trợ bởi Groq AI (Llama 4 Scout)
             </p>
           </div>
 

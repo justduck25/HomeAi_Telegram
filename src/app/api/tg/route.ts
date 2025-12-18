@@ -1854,9 +1854,8 @@ export async function POST(req: NextRequest) {
 
     const groq = new Groq({ apiKey: groqApiKey });
 
-    // Chọn model phù hợp: Vision cho ảnh, Versatile cho text
-    // Note: 90b-vision-preview decommissioned, using 11b-vision-preview
-    const model = (hasPhoto && message.photo) ? "llama-3.2-11b-vision-preview" : "llama-3.3-70b-versatile";
+    // Chọn model phù hợp: Llama 4 Scout (Multimodal - Text & Vision)
+    const model = "llama-4-scout-17b-16e-instruct";
 
     // Xử lý ảnh nếu có
     let imageUrl = null;
