@@ -1855,7 +1855,7 @@ export async function POST(req: NextRequest) {
     const groq = new Groq({ apiKey: groqApiKey });
 
     // Chọn model phù hợp: Llama 4 Scout (Multimodal - Text & Vision)
-    const model = "llama-4-scout-17b-16e-instruct";
+    const model = "meta-llama/llama-4-scout-17b-16e-instruct";
 
     // Xử lý ảnh nếu có
     let imageUrl = null;
