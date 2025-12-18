@@ -1,5 +1,8 @@
 // Image Analysis and Filtering using Google Gemini AI
-import { GoogleGenerativeAI } from "@google/generative-ai";
+// Image Analysis and Filtering
+// Gemini integration removed in favor of Groq directly in route.ts
+// This service is now a stub for backward compatibility
+
 
 export interface VisionAnalysisResult {
   labels: string[];
@@ -28,7 +31,7 @@ export interface ImageFilterResult {
 }
 
 class GeminiVisionService {
-  private genAI: GoogleGenerativeAI | null = null;
+  private genAI: any = null;
   private isEnabled: boolean = false;
 
   constructor() {
@@ -36,29 +39,8 @@ class GeminiVisionService {
   }
 
   private initializeClient() {
-    try {
-      // Tạm thời tắt Gemini Vision do rate limit (10 requests/phút)
-      // TODO: Sẽ enable lại sau khi tối ưu rate limiting
-      console.log('⚠️ Gemini Vision temporarily disabled - using standard image filtering');
-      console.log('💡 Reason: Gemini free tier has 10 requests/minute limit');
-      this.isEnabled = false;
-      
-      /* 
-      // Code để enable Gemini Vision (comment tạm thời)
-      if (process.env.GOOGLE_API_KEY) {
-        this.genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-        this.isEnabled = true;
-        console.log('✅ Gemini Vision Service initialized - using Gemini AI for image analysis');
-      } else {
-        console.log('⚠️ Gemini Vision Service not configured - image filtering disabled');
-        console.log('💡 Set GOOGLE_API_KEY to enable Gemini-powered image analysis');
-        this.isEnabled = false;
-      }
-      */
-    } catch (error) {
-      console.error('❌ Failed to initialize Gemini Vision Service:', error);
-      this.isEnabled = false;
-    }
+    console.log('⚠️ Vision Service is disabled (Gemini removed)');
+    this.isEnabled = false;
   }
 
   /**
@@ -66,10 +48,10 @@ class GeminiVisionService {
    */
   private isUnsafeContent(safeSearch: { adult: string; spoof: string; medical: string; violence: string; racy: string; }): boolean {
     const unsafeLevels = ['LIKELY', 'VERY_LIKELY'];
-    
+
     return unsafeLevels.includes(safeSearch.adult) ||
-           unsafeLevels.includes(safeSearch.violence) ||
-           unsafeLevels.includes(safeSearch.racy);
+      unsafeLevels.includes(safeSearch.violence) ||
+      unsafeLevels.includes(safeSearch.racy);
   }
 
   /**
@@ -89,7 +71,7 @@ class GeminiVisionService {
       if (!imageResponse.ok) {
         throw new Error(`Failed to fetch image: ${imageResponse.status}`);
       }
-      
+
       const imageBuffer = await imageResponse.arrayBuffer();
       const imageBase64 = Buffer.from(imageBuffer).toString('base64');
 
@@ -128,7 +110,7 @@ Respond ONLY with valid JSON, no additional text.`;
 
       const response = await result.response;
       const text = response.text();
-      
+
       // Parse JSON response
       const analysis = JSON.parse(text.trim());
 
@@ -156,13 +138,13 @@ Respond ONLY with valid JSON, no additional text.`;
    * Tính điểm relevance dựa trên kết quả Vision API và query của user
    */
   private calculateRelevanceScore(
-    analysis: VisionAnalysisResult, 
+    analysis: VisionAnalysisResult,
     userQuery: string
   ): number {
     let score = 0;
     const queryWords = userQuery.toLowerCase().split(' ').filter(word => word.length > 2);
     const allDetectedTerms = [...analysis.labels, ...analysis.objects];
-    
+
     if (analysis.text) {
       allDetectedTerms.push(analysis.text);
     }
@@ -232,12 +214,12 @@ Respond ONLY with valid JSON, no additional text.`;
     }
 
     console.log(`🔍 Analyzing ${images.length} images with Google Vision API...`);
-    
+
     // Analyze all images in parallel (với rate limiting)
     const analysisPromises = images.map(async (image, index) => {
       // Add delay để tránh rate limiting
       await new Promise(resolve => setTimeout(resolve, index * 100));
-      
+
       const analysis = await this.analyzeImage(image.url);
       if (!analysis) {
         return null;
@@ -246,9 +228,9 @@ Respond ONLY with valid JSON, no additional text.`;
       const relevanceScore = this.calculateRelevanceScore(analysis, userQuery);
       analysis.relevanceScore = relevanceScore;
 
-    // Determine if image is relevant (threshold có thể adjust)
-    const isRelevant = relevanceScore > 10 && 
-      !this.isUnsafeContent(analysis.safeSearch);
+      // Determine if image is relevant (threshold có thể adjust)
+      const isRelevant = relevanceScore > 10 &&
+        !this.isUnsafeContent(analysis.safeSearch);
 
       return {
         ...image,
@@ -260,19 +242,19 @@ Respond ONLY with valid JSON, no additional text.`;
 
     // Wait for all analyses to complete
     const analysisResults = await Promise.all(analysisPromises);
-    
+
     // Filter out failed analyses
     const validResults = analysisResults.filter(result => result !== null) as ImageFilterResult[];
-    
+
     console.log(`✅ Vision analysis completed: ${validResults.length}/${images.length} images analyzed`);
-    
+
     // Filter relevant images and sort by relevance score
     const relevantImages = validResults
       .filter(result => result.isRelevant)
       .sort((a, b) => b.relevanceScore - a.relevanceScore);
 
     console.log(`🎯 Found ${relevantImages.length} relevant images out of ${validResults.length}`);
-    
+
     // Log top results for debugging
     relevantImages.slice(0, 3).forEach((img, index) => {
       console.log(`📸 Top ${index + 1}: Score ${img.relevanceScore}, Labels: [${img.visionAnalysis.labels.slice(0, 3).join(', ')}]`);
@@ -287,7 +269,7 @@ Respond ONLY with valid JSON, no additional text.`;
         .filter(result => !result.isRelevant)
         .sort((a, b) => b.relevanceScore - a.relevanceScore)
         .slice(0, maxResults - relevantImages.length);
-      
+
       return [...relevantImages, ...additionalImages];
     }
   }

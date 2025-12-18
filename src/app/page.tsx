@@ -28,7 +28,7 @@ export default function Home() {
               </h1>
             </div>
             <p className="text-xl text-gray-600 dark:text-gray-300 max-w-2xl">
-              Bot Telegram thông minh được hỗ trợ bởi Google Gemini 2.5 Flash
+              Bot Telegram thông minh được hỗ trợ bởi Groq AI (Llama 3)
             </p>
           </div>
 
@@ -40,10 +40,10 @@ export default function Home() {
                 Trò chuyện thông minh
               </h3>
               <p className="text-gray-600 dark:text-gray-300">
-                Giao tiếp tự nhiên bằng tiếng Việt với AI Gemini
+                Giao tiếp tự nhiên bằng tiếng Việt với Groq AI
               </p>
             </div>
-            
+
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
               <div className="text-3xl mb-3">🧠</div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
@@ -53,7 +53,7 @@ export default function Home() {
                 Lưu trữ lịch sử hội thoại để trả lời chính xác hơn
               </p>
             </div>
-            
+
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
               <div className="text-3xl mb-3">⚡</div>
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
@@ -91,7 +91,7 @@ export default function Home() {
             </div>
           </div>
         </div>
-      </main>
-    </div>
+      </main >
+    </div >
   );
 }
