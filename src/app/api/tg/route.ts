@@ -1832,7 +1832,10 @@ export async function POST(req: NextRequest) {
         const savedMessages = await getMemory(userId);
         if (savedMessages && Array.isArray(savedMessages)) {
           // Chuyển đổi về format message cho Groq API
-          context = savedMessages.map(msg => ({
+          // Giới hạn context: Lấy 10 tin nhắn gần nhất để tránh lỗi Rate Limit (413)
+          const recentMessages = savedMessages.slice(-10);
+
+          context = recentMessages.map(msg => ({
             role: msg.role === 'user' ? 'user' : 'assistant',
             content: msg.content
           }));
@@ -1852,7 +1855,8 @@ export async function POST(req: NextRequest) {
     const groq = new Groq({ apiKey: groqApiKey });
 
     // Chọn model phù hợp: Vision cho ảnh, Versatile cho text
-    const model = (hasPhoto && message.photo) ? "llama-3.2-90b-vision-preview" : "llama-3.3-70b-versatile";
+    // Note: 90b-vision-preview decommissioned, using 11b-vision-preview
+    const model = (hasPhoto && message.photo) ? "llama-3.2-11b-vision-preview" : "llama-3.3-70b-versatile";
 
     // Xử lý ảnh nếu có
     let imageUrl = null;
