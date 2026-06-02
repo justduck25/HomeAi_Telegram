@@ -4,7 +4,6 @@ import {
   edgeTextToSpeechLong, 
   isTextSuitableForEdgeTTS, 
   MAX_EDGE_TTS_LEN,
-  VIETNAMESE_VOICES,
   type VietnameseVoice 
 } from './edge-tts';
 

@@ -1,4 +1,5 @@
 import { getUsersForDailyNotification } from './location';
+import type { IUser } from './models/User';
 import { getWeatherData, formatWeatherMessage } from './weather';
 
 /**
@@ -39,7 +40,7 @@ async function sendTelegramMessage(chatId: string, message: string): Promise<boo
 /**
  * Gửi dự báo thời tiết cho một user
  */
-async function sendWeatherNotificationToUser(user: any): Promise<boolean> {
+async function sendWeatherNotificationToUser(user: IUser): Promise<boolean> {
   try {
     if (!user.location?.latitude || !user.location?.longitude) {
       console.log(`User ${user.telegramId} has no location data`);

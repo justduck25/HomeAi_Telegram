@@ -1,8 +1,6 @@
 // Enhanced Search Service với multiple APIs và fallback system
 // Tavily AI (chính) -> Brave Search API (backup) -> Pexels/Unsplash (hình ảnh) -> Google Vision filtering
 
-import { visionService, type ImageFilterResult } from './vision';
-
 interface SearchResult {
   title: string;
   snippet: string;
@@ -25,9 +23,92 @@ interface ImageResult {
   relevanceScore?: number;
 }
 
+interface RetrievalDocument {
+  id: string;
+  title: string;
+  content: string;
+  url: string;
+  source: string;
+  score?: number;
+}
+
+interface TavilyResult {
+  title: string;
+  content: string;
+  url: string;
+}
+
+interface TavilyResponse {
+  answer?: string;
+  results?: TavilyResult[];
+}
+
+interface BraveWebResult {
+  title: string;
+  description: string;
+  url: string;
+}
+
+interface BraveImageResult {
+  src: string;
+  title?: string;
+  properties?: {
+    width?: number;
+    height?: number;
+  };
+}
+
+interface BraveResponse {
+  web?: {
+    results?: BraveWebResult[];
+  };
+  images?: {
+    results?: BraveImageResult[];
+  };
+}
+
+interface PexelsPhoto {
+  src: {
+    large: string;
+  };
+  alt?: string;
+  photographer?: string;
+  width?: number;
+  height?: number;
+}
+
+interface PexelsResponse {
+  photos?: PexelsPhoto[];
+}
+
+interface UnsplashPhoto {
+  id: string;
+  urls: {
+    regular: string;
+  };
+  alt_description?: string;
+  description?: string;
+  user: {
+    name: string;
+    links: {
+      html: string;
+    };
+  };
+  width?: number;
+  height?: number;
+  links: {
+    download_location: string;
+  };
+}
+
+interface UnsplashResponse {
+  results?: UnsplashPhoto[];
+}
+
 interface SearchResponse {
   text: string | null;
   images: ImageResult[];
+  documents: RetrievalDocument[];
   source: string;
   success: boolean;
 }
@@ -85,6 +166,7 @@ class EnhancedSearchService {
     return {
       text: null,
       images: [],
+      documents: [],
       source: "none",
       success: false
     };
@@ -115,11 +197,19 @@ class EnhancedSearchService {
       throw new Error(`Tavily API error: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as TavilyResponse;
     
     if (!data.results || data.results.length === 0) {
-      return { text: null, images: [], source: "tavily", success: false };
+      return { text: null, images: [], documents: [], source: "tavily", success: false };
     }
+
+    const documents: RetrievalDocument[] = data.results.slice(0, 5).map((item, index) => ({
+      id: `tavily-${index + 1}`,
+      title: item.title,
+      content: item.content,
+      url: item.url,
+      source: "tavily",
+    }));
 
     // Format kết quả
     let searchText = `🔍 **Kết quả tìm kiếm cho "${query}"** (Tavily AI):\n\n`;
@@ -128,7 +218,7 @@ class EnhancedSearchService {
       searchText += `💡 **Tóm tắt**: ${data.answer}\n\n`;
     }
 
-    data.results.slice(0, 3).forEach((item: any, index: number) => {
+    documents.slice(0, 3).forEach((item, index) => {
       searchText += `**${index + 1}. ${item.title}**\n`;
       searchText += `${item.content}\n`;
       searchText += `🔗 ${item.url}\n\n`;
@@ -137,6 +227,7 @@ class EnhancedSearchService {
     return {
       text: searchText,
       images: [],
+      documents,
       source: "tavily",
       success: true
     };
@@ -157,25 +248,33 @@ class EnhancedSearchService {
       throw new Error(`Brave Search API error: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as BraveResponse;
     
     if (!data.web || !data.web.results || data.web.results.length === 0) {
-      return { text: null, images: [], source: "brave", success: false };
+      return { text: null, images: [], documents: [], source: "brave", success: false };
     }
+
+    const documents: RetrievalDocument[] = data.web.results.slice(0, 5).map((item, index) => ({
+      id: `brave-${index + 1}`,
+      title: item.title,
+      content: item.description,
+      url: item.url,
+      source: "brave",
+    }));
 
     // Format text results
     let searchText = `🔍 **Kết quả tìm kiếm cho "${query}"** (Brave Search):\n\n`;
     
-    data.web.results.slice(0, 3).forEach((item: any, index: number) => {
+    documents.slice(0, 3).forEach((item, index) => {
       searchText += `**${index + 1}. ${item.title}**\n`;
-      searchText += `${item.description}\n`;
+      searchText += `${item.content}\n`;
       searchText += `🔗 ${item.url}\n\n`;
     });
 
     // Get images from Brave if requested and available
     let images: ImageResult[] = [];
     if (includeImages && data.images && data.images.results) {
-      images = data.images.results.slice(0, maxImages).map((img: any) => ({
+      images = data.images.results.slice(0, maxImages).map((img) => ({
         url: img.src,
         alt: img.title || query,
         source: "brave",
@@ -187,6 +286,7 @@ class EnhancedSearchService {
     return {
       text: searchText,
       images,
+      documents,
       source: "brave",
       success: true
     };
@@ -652,13 +752,13 @@ class EnhancedSearchService {
       throw new Error(`Pexels API error: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as PexelsResponse;
     
     if (!data.photos || data.photos.length === 0) {
       return [];
     }
 
-    return data.photos.map((photo: any) => ({
+    return data.photos.map((photo) => ({
       url: photo.src.large,
       alt: photo.alt || query,
       source: "pexels",
@@ -683,13 +783,13 @@ class EnhancedSearchService {
       throw new Error(`Unsplash API error: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as UnsplashResponse;
     
     if (!data.results || data.results.length === 0) {
       return [];
     }
 
-    return data.results.map((photo: any) => ({
+    return data.results.map((photo) => ({
       url: photo.urls.regular,
       alt: photo.alt_description || photo.description || query,
       source: "unsplash",
@@ -716,4 +816,4 @@ class EnhancedSearchService {
 
 // Export singleton instance
 export const searchService = new EnhancedSearchService();
-export type { SearchResponse, SearchResult, ImageResult };
+export type { SearchResponse, SearchResult, ImageResult, RetrievalDocument };

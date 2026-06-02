@@ -1,18 +1,4 @@
-'use client';
-
-import { useEffect, useState } from 'react';
-
 export default function Home() {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) {
-    return null;
-  }
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-linear-to-br from-blue-50 to-indigo-100 font-sans dark:from-gray-900 dark:to-gray-800">
       <main className="flex w-full max-w-4xl flex-col items-center justify-center px-8 py-16">

@@ -70,7 +70,7 @@ async function getUsersWithDailyNotification() {
 }
 
 // Handler cho GET request (cron job)
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
     console.log('🌅 Bắt đầu gửi thông báo thời tiết hàng ngày...');
 
