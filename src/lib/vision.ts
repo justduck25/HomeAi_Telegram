@@ -30,8 +30,20 @@ export interface ImageFilterResult {
   relevanceScore: number;
 }
 
+type GeminiModel = {
+  generateContent(content: unknown[]): Promise<{
+    response: {
+      text(): string;
+    };
+  }>;
+};
+
+type GeminiClient = {
+  getGenerativeModel(options: { model: string }): GeminiModel;
+};
+
 class GeminiVisionService {
-  private genAI: any = null;
+  private genAI: GeminiClient | null = null;
   private isEnabled: boolean = false;
 
   constructor() {

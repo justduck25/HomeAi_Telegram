@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { 
   getAllUsers, 
-  getUserByTelegramId, 
   updateUser, 
   deleteUser,
   isUserAdmin 

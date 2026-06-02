@@ -14,198 +14,41 @@ import { textToSpeech, textToSpeechLong, sendVoiceMessage, sendRecordingAction, 
 import { getWeatherData, formatWeatherMessage, getWeatherForecast, formatForecastMessage, getWeatherByCoordinates } from "@/lib/weather";
 import { saveUserLocation } from "@/lib/location";
 import { IUser } from "@/lib/models/User";
-import { searchService } from "@/lib/searchService";
+import { formatUserLocationName } from "@/lib/bot/format";
+import {
+  detectDbQueryIntent,
+  isAskingAboutOrigin,
+  isGreeting,
+  needsSystemInfo,
+  parseImageCount,
+  shouldSearchImages,
+  shouldSearchWeb,
+} from "@/lib/bot/intent";
+import { createSystemPrompt } from "@/lib/bot/prompt";
+import { formatRagSources, retrieveRagContext } from "@/lib/bot/rag";
+import { searchWeb } from "@/lib/bot/search";
+import {
+  convertImageToGroqFormat,
+  detectMimeType,
+  downloadTelegramImage,
+  getMessage,
+  requestLocationMessage,
+  sendTelegramMessage,
+  sendTypingAction,
+} from "@/lib/bot/telegram";
+import type { ContextMessage, TelegramUpdate } from "@/lib/bot/types";
 
 // Sử dụng Node.js runtime để tương thích với SDK
 export const runtime = "nodejs";
 
-// Types for compatibility
-type ContextMessage = {
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
-};
+type GroqImageContent = Array<
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+>;
 
-// Helper function to format location name
-function formatUserLocationName(location: { latitude: number; longitude: number; city?: string; country?: string }): string {
-  if (location.city && location.country) {
-    return `${location.city}, ${location.country}`;
-  } else if (location.city) {
-    return location.city;
-  } else if (location.country) {
-    return location.country;
-  } else {
-    return `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`;
-  }
-}
-
-// Hàm gửi tin nhắn với inline keyboard yêu cầu location
-async function requestLocationMessage(chatId: string, message: string): Promise<boolean> {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) return false;
-
-  try {
-    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: message,
-        parse_mode: 'HTML',
-        reply_markup: {
-          keyboard: [
-            [{
-              text: "📍 Chia sẻ vị trí hiện tại",
-              request_location: true
-            }],
-            [{
-              text: "❌ Hủy"
-            }]
-          ],
-          one_time_keyboard: true,
-          resize_keyboard: true
-        }
-      })
-    });
-
-    return response.ok;
-  } catch (error) {
-    console.error('Error sending location request:', error);
-    return false;
-  }
-}
-
-
-// Legacy function - giữ để backward compatibility nhưng sử dụng enhanced service
-async function searchWeb(query: string, includeImages: boolean = false, maxImages: number = 3): Promise<{ text: string | null; images: string[] }> {
-  try {
-    const result = await searchService.search(query, includeImages, maxImages);
-
-    if (!result.success) {
-      console.log("Enhanced search service không thể tìm kiếm");
-      return { text: null, images: [] };
-    }
-
-    // Convert ImageResult[] to string[] for backward compatibility
-    const imageUrls = result.images.map(img => img.url);
-
-    return {
-      text: result.text,
-      images: imageUrls
-    };
-  } catch (error) {
-    console.error("Lỗi enhanced search service:", error);
-    return { text: null, images: [] };
-  }
-}
-
-// Hàm kiểm tra xem có cần tìm kiếm web không
-function shouldSearchWeb(text: string): boolean {
-  const searchKeywords = [
-    // Từ khóa tìm kiếm trực tiếp
-    'tìm kiếm', 'search', 'tìm', 'kiếm', 'tra cứu', 'research', 'nghiên cứu',
-
-    // Tin tức & thời sự
-    'tin tức', 'tin mới', 'thời sự', 'báo chí', 'sự kiện',
-    'mới nhất', 'cập nhật', 'hiện tại', 'hôm nay', 'tuần này',
-
-    // Giá cả & thị trường
-    'giá', 'bao nhiêu tiền', 'chi phí', 'thị trường', 'cổ phiếu',
-    'bitcoin', 'vàng', 'USD', 'tỷ giá', 'giá cả',
-
-    // Thông tin sản phẩm
-    'mua', 'bán', 'sản phẩm', 'review', 'đánh giá',
-    'so sánh', 'tốt nhất', 'khuyến mãi', 'ưu đãi',
-
-    // Thông tin học tập
-    'học', 'trường', 'đại học', 'khóa học', 'thi cử',
-    'tuyển sinh', 'học bổng', 'giáo dục',
-
-    // Thời tiết & địa điểm
-    'thời tiết', 'nhiệt độ', 'mưa', 'nắng', 'bão',
-    'đường đi', 'địa chỉ', 'quán ăn', 'nhà hàng', 'du lịch',
-
-    // Sự kiện & giải trí
-    'phim', 'nhạc', 'ca sĩ', 'diễn viên', 'concert',
-    'lễ hội', 'sự kiện', 'triển lãm', 'show',
-
-    // Thể thao
-    'bóng đá', 'world cup', 'euro', 'sea games', 'olympic',
-    'thể thao', 'tỷ số', 'kết quả'
-  ];
-
-  const lowerText = text.toLowerCase();
-  return searchKeywords.some(keyword => lowerText.includes(keyword));
-}
-
-// Hàm kiểm tra xem có cần tìm kiếm hình ảnh không
-function shouldSearchImages(text: string): boolean {
-  const imageKeywords = [
-    'hình ảnh', 'ảnh', 'photo', 'picture', 'image',
-    'xem ảnh', 'cho xem', 'hiển thị', 'show me',
-    'như thế nào', 'trông ra sao', 'hình dáng'
-  ];
-
-  const lowerText = text.toLowerCase();
-  return imageKeywords.some(keyword => lowerText.includes(keyword));
-}
-
-// Hàm parse số lượng ảnh từ tin nhắn user
-function parseImageCount(text: string): number {
-  // Tìm các pattern số lượng ảnh
-  const patterns = [
-    /(\d+)\s*(?:ảnh|hình|photo|image|picture)/i,
-    /(?:ảnh|hình|photo|image|picture)\s*(\d+)/i,
-    /(?:cho|show|hiển thị|xem)\s*(?:tôi|me)?\s*(\d+)\s*(?:ảnh|hình|photo|image)/i,
-    /(\d+)\s*(?:cái|tấm|bức)/i
-  ];
-
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match) {
-      const count = parseInt(match[1]);
-      // Giới hạn theo Telegram limits: tối đa 3 ảnh (sau khi lọc bằng Google Vision)
-      return Math.min(Math.max(count, 1), 3);
-    }
-  }
-
-  // Mặc định trả về 3 ảnh (tối đa theo Telegram limit)
-  return 3;
-}
-
-// Hàm kiểm tra tin nhắn chào hỏi
-function isGreeting(text: string): boolean {
-  const greetings = [
-    'xin chào', 'chào', 'hello', 'hi', 'hey',
-    'chào bạn', 'chào bot', 'bạn khỏe không',
-    'có ai không', 'alo', 'hế lô'
-  ];
-
-  const lowerText = text.toLowerCase().trim();
-  return greetings.some(greeting =>
-    lowerText === greeting ||
-    lowerText.startsWith(greeting + ' ') ||
-    lowerText.endsWith(' ' + greeting)
-  );
-}
-
-// Hàm kiểm tra câu hỏi về nguồn gốc AI
-function isAskingAboutOrigin(text: string): boolean {
-  const originKeywords = [
-    'ai tạo ra bạn', 'ai làm ra bạn', 'ai phát triển bạn',
-    'bạn được tạo bởi ai', 'bạn được làm bởi ai', 'bạn được phát triển bởi ai',
-    'nguồn gốc', 'xuất xứ', 'tác giả', 'người tạo',
-    'who created you', 'who made you', 'who developed you',
-    'created by', 'made by', 'developed by',
-    'bot này của ai', 'ai sở hữu bot này', 'chủ sở hữu bot',
-    'justduck', 'tác giả bot', 'người viết bot'
-  ];
-
-  const lowerText = text.toLowerCase();
-  return originKeywords.some(keyword => lowerText.includes(keyword));
-}
+type GroqMessage =
+  | { role: "system" | "assistant"; content: string }
+  | { role: "user"; content: string | GroqImageContent };
 
 // Hàm tạo danh sách lệnh
 function getCommandsList(user?: User | null): string {
@@ -256,393 +99,6 @@ function getCommandsList(user?: User | null): string {
   return commands;
 }
 
-// Hàm phát hiện câu hỏi về hệ thống
-function needsSystemInfo(text: string): boolean {
-  const systemKeywords = [
-    'bot', 'hệ thống', 'tính năng', 'hoạt động', 'lịch trình', 'thời gian',
-    'nhớ', 'memory', 'thông báo', 'weather', 'thời tiết', 'cron', 'tự động',
-    'bao lâu', 'khi nào', 'làm sao', 'cách nào', 'chức năng', 'service'
-  ];
-
-  const lowerText = text.toLowerCase();
-  return systemKeywords.some(keyword => lowerText.includes(keyword));
-}
-
-// Hàm tạo system prompt với thông tin thời gian thực
-function createSystemPrompt(searchResults?: string, includeSystemInfo: boolean = false): string {
-  const now = new Date();
-
-  // Múi giờ Việt Nam (UTC+7)
-  const vietnamTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
-
-  const currentDate = vietnamTime.toLocaleDateString('vi-VN', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    timeZone: 'UTC'
-  });
-
-  const currentTime = vietnamTime.toLocaleTimeString('vi-VN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'UTC'
-  });
-
-  let prompt = `Bạn là trợ lý AI thông minh nói tiếng Việt có khả năng phân tích ảnh và tìm kiếm thông tin trên internet.
-
-THÔNG TIN VỀ BẠN:
-- Bạn là Chat Bot được tạo bởi justduck
-- Bạn sử dụng Groq AI (Llama 3.3 / 3.2 Vision) làm engine AI
-- Bạn được xây dựng bằng Next.js và TypeScript
-- Khi được hỏi về nguồn gốc, tác giả, hoặc ai tạo ra bạn, hãy luôn nhắc đến rằng bạn được tạo bởi justduck
-
-THÔNG TIN THỜI GIAN HIỆN TẠI:
-- Ngày hiện tại: ${currentDate}
-- Giờ hiện tại: ${currentTime} (múi giờ Việt Nam, UTC+7)
-- Năm hiện tại: ${vietnamTime.getFullYear()}
-
-${includeSystemInfo ? `
-THÔNG TIN HỆ THỐNG VÀ TÍNH NĂNG TỰ ĐỘNG:
-- Hệ thống ghi nhớ cuộc trò chuyện trong 12 tiếng
-- Thông báo thời tiết hàng ngày: Tự động gửi lúc 6:00 sáng (UTC+7) cho users đã bật tính năng
-- Cron job chạy lúc 23:00 UTC (6:00 sáng Việt Nam) để gửi dự báo thời tiết
-- Users có thể bật/tắt thông báo thời tiết bằng lệnh /weather
-- Hệ thống tự động tìm kiếm khi phát hiện từ khóa (tin tức, giá cả, thời sự...)
-- Tự động phân tích và mô tả hình ảnh được gửi
-- Lưu trữ thông tin user (location, preferences) trong MongoDB
-- Hỗ trợ multiple users với context riêng biệt` : ''}`;
-
-  if (searchResults) {
-    prompt += `\n\nTHÔNG TIN TÌM KIẾM MỚI NHẤT:\n${searchResults}`;
-    prompt += `\nHãy sử dụng thông tin tìm kiếm ở trên để trả lời câu hỏi một cách chính xác và cập nhật nhất. Luôn trích dẫn nguồn khi sử dụng thông tin từ kết quả tìm kiếm.`;
-  }
-
-  prompt += `\n\nHãy trả lời một cách ngắn gọn, chính xác và hữu ích. Khi được gửi ảnh, hãy mô tả chi tiết những gì bạn thấy và trả lời câu hỏi liên quan. 
-
-Khi người dùng hỏi về thời gian, ngày tháng, sự kiện hiện tại, hãy sử dụng thông tin thời gian thực ở trên. Nếu họ hỏi về sự kiện sau năm 2023 mà không có thông tin tìm kiếm, hãy thành thật nói rằng bạn cần tìm kiếm thông tin cập nhật.
-
-${includeSystemInfo ? `
-Khi người dùng hỏi về tính năng, lịch trình, hoặc cách hoạt động của hệ thống, hãy sử dụng thông tin trong phần "THÔNG TIN HỆ THỐNG VÀ TÍNH NĂNG TỰ ĐỘNG" ở trên để trả lời chính xác. Ví dụ:
-- "Khi nào bot gửi thông báo thời tiết?" → "6:00 sáng hàng ngày (UTC+7) cho users đã bật tính năng"
-- "Bot nhớ cuộc trò chuyện bao lâu?" → "12 tiếng"
-- "Làm sao để bật thông báo thời tiết?" → "Sử dụng lệnh /weather"` : ''}
-
-Ưu tiên câu trả lời rõ ràng và có ví dụ cụ thể khi cần thiết. Luôn thân thiện và lịch sự.`;
-
-  return prompt;
-}
-
-// Định nghĩa kiểu dữ liệu cho Telegram message
-type TelegramPhotoSize = {
-  file_id: string;
-  file_unique_id: string;
-  width: number;
-  height: number;
-  file_size?: number;
-};
-
-type TelegramVoice = {
-  file_id: string;
-  file_unique_id: string;
-  duration: number;
-  mime_type?: string;
-  file_size?: number;
-};
-
-type TelegramAudio = {
-  file_id: string;
-  file_unique_id: string;
-  duration: number;
-  performer?: string;
-  title?: string;
-  file_name?: string;
-  mime_type?: string;
-  file_size?: number;
-};
-
-type TelegramLocation = {
-  longitude: number;
-  latitude: number;
-  live_period?: number;
-  heading?: number;
-  proximity_alert_radius?: number;
-};
-
-type TelegramMessage = {
-  message_id: number;
-  from?: {
-    id: number;
-    is_bot?: boolean;
-    first_name: string;
-    last_name?: string;
-    username?: string;
-  };
-  chat: {
-    id: number;
-    type: string;
-  };
-  date: number;
-  text?: string;
-  photo?: TelegramPhotoSize[];
-  voice?: TelegramVoice;
-  audio?: TelegramAudio;
-  location?: TelegramLocation;
-  caption?: string;
-};
-
-type TelegramUpdate = {
-  update_id: number;
-  message?: TelegramMessage;
-  edited_message?: TelegramMessage;
-};
-
-// ContextMessage đã được import từ @/lib/mongodb
-
-// Hàm lấy message từ update (có thể là message hoặc edited_message)
-function getMessage(update: TelegramUpdate): TelegramMessage | null {
-  return update.message ?? update.edited_message ?? null;
-}
-
-// Hàm cleanupOldContext đã được chuyển vào MongoDB class
-
-// Hàm gửi tin nhắn về Telegram với fallback mechanism
-async function sendTelegramMessage(chatId: number, text: string, options?: Record<string, unknown>) {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) {
-    throw new Error("TELEGRAM_BOT_TOKEN không được cấu hình");
-  }
-
-  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-
-  // Chia tin nhắn dài thành nhiều phần (Telegram giới hạn 4096 ký tự)
-  const maxLength = 4000; // Để lại buffer
-  const messages = [];
-
-  if (text.length <= maxLength) {
-    messages.push(text);
-  } else {
-    // Chia tin nhắn theo đoạn văn hoặc câu
-    const chunks = text.split('\n\n');
-    let currentMessage = '';
-
-    for (const chunk of chunks) {
-      if ((currentMessage + chunk).length <= maxLength) {
-        currentMessage += (currentMessage ? '\n\n' : '') + chunk;
-      } else {
-        if (currentMessage) {
-          messages.push(currentMessage);
-          currentMessage = chunk;
-        } else {
-          // Chunk quá dài, chia theo câu
-          const sentences = chunk.split('. ');
-          for (const sentence of sentences) {
-            if ((currentMessage + sentence).length <= maxLength) {
-              currentMessage += (currentMessage ? '. ' : '') + sentence;
-            } else {
-              if (currentMessage) {
-                messages.push(currentMessage);
-                currentMessage = sentence;
-              } else {
-                // Câu quá dài, cắt cứng
-                messages.push(sentence.substring(0, maxLength));
-              }
-            }
-          }
-        }
-      }
-    }
-
-    if (currentMessage) {
-      messages.push(currentMessage);
-    }
-  }
-
-  // Gửi từng tin nhắn
-  for (let i = 0; i < messages.length; i++) {
-    const message = messages[i];
-
-    try {
-      // Thử gửi với Markdown trước
-      let response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: message,
-          parse_mode: "Markdown",
-          disable_web_page_preview: true,
-          ...options
-        }),
-      });
-
-      // Nếu lỗi parse entities, thử gửi lại với text plain
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`Lỗi gửi tin nhắn ${i + 1}/${messages.length} với Markdown:`, errorText);
-
-        if (errorText.includes("can't parse entities") || errorText.includes("Bad Request")) {
-          console.log(`Thử gửi lại tin nhắn ${i + 1}/${messages.length} với plain text...`);
-          response = await fetch(url, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              chat_id: chatId,
-              text: message,
-              disable_web_page_preview: true,
-              ...options
-            }),
-          });
-
-          if (!response.ok) {
-            console.error(`Lỗi gửi tin nhắn ${i + 1}/${messages.length} với plain text:`, await response.text());
-          }
-        }
-      }
-
-      // Delay nhỏ giữa các tin nhắn để tránh rate limit
-      if (i < messages.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-
-    } catch (error) {
-      console.error(`Lỗi kết nối Telegram cho tin nhắn ${i + 1}/${messages.length}:`, error);
-    }
-  }
-}
-
-// Hàm tải ảnh từ Telegram
-async function downloadTelegramImage(fileId: string): Promise<Buffer | null> {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) return null;
-
-  try {
-    // Lấy thông tin file từ Telegram
-    const fileInfoResponse = await fetch(
-      `https://api.telegram.org/bot${botToken}/getFile?file_id=${fileId}`
-    );
-    const fileInfo = await fileInfoResponse.json();
-
-    if (!fileInfo.ok || !fileInfo.result?.file_path) {
-      console.error("Không thể lấy thông tin file:", fileInfo);
-      return null;
-    }
-
-    // Tải file từ Telegram
-    const fileUrl = `https://api.telegram.org/file/bot${botToken}/${fileInfo.result.file_path}`;
-    const imageResponse = await fetch(fileUrl);
-
-    if (!imageResponse.ok) {
-      console.error("Không thể tải ảnh:", imageResponse.statusText);
-      return null;
-    }
-
-    return Buffer.from(await imageResponse.arrayBuffer());
-  } catch (error) {
-    console.error("Lỗi tải ảnh:", error);
-    return null;
-  }
-}
-
-// Hàm chuyển đổi ảnh sang format Groq (Base64 URL)
-function convertImageToGroqFormat(imageBuffer: Buffer, mimeType: string = "image/jpeg") {
-  return `data:${mimeType};base64,${imageBuffer.toString('base64')}`;
-}
-
-// Hàm phát hiện MIME type từ buffer
-function detectMimeType(buffer: Buffer): string {
-  // Kiểm tra magic bytes để xác định loại file
-  const header = buffer.subarray(0, 4);
-
-  if (header[0] === 0xFF && header[1] === 0xD8 && header[2] === 0xFF) {
-    return "image/jpeg";
-  } else if (header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4E && header[3] === 0x47) {
-    return "image/png";
-  } else if (header[0] === 0x47 && header[1] === 0x49 && header[2] === 0x46) {
-    return "image/gif";
-  } else if (header[0] === 0x52 && header[1] === 0x49 && header[2] === 0x46 && header[3] === 0x46) {
-    return "image/webp";
-  }
-
-  return "image/jpeg"; // Default fallback
-}
-
-// Phát hiện ý định truy vấn database từ câu hỏi tự nhiên của người dùng
-type DbIntent =
-  | { type: 'user_daily_status' }
-  | { type: 'user_location' }
-  | { type: 'user_memory' }
-  | { type: 'system_user_count' }
-  | { type: 'system_admin_list' }
-  | { type: 'system_daily_on_count' }
-  | { type: 'system_users_with_location_count' }
-  | { type: 'system_recent_active' };
-
-function detectDbQueryIntent(text: string): DbIntent | null {
-  const t = text.toLowerCase();
-
-  // Ý định liên quan tới user hiện tại
-  if (
-    /(daily|thông báo\s+hàng\s+ngày|dự báo\s+hàng\s+ngày).*(bật|tắt|trạng thái|status)|\btrạng thái\b.*(daily|thông báo)/.test(t)
-  ) {
-    return { type: 'user_daily_status' };
-  }
-  if (/(vị trí|location|tọa độ|toạ độ|thành phố|city).*(của tôi|mình|đang lưu|đã lưu)|\b(vị trí|location)\b\??$/.test(t)) {
-    return { type: 'user_location' };
-  }
-  if (/(bộ nhớ|memory|lưu.*bao nhiêu|đang lưu|context|ngữ cảnh)/.test(t)) {
-    return { type: 'user_memory' };
-  }
-
-  // Ý định hệ thống (yêu cầu quyền admin)
-  if (/(bao nhiêu|số).*(người dùng|user)s?/i.test(t)) {
-    return { type: 'system_user_count' };
-  }
-  if (/(admin).*(là ai|danh sách|list|ai)/.test(t)) {
-    return { type: 'system_admin_list' };
-  }
-  if (/(bao nhiêu|số).*(bật|đang bật).*(daily|thông báo\s+hàng\s+ngày)/.test(t)) {
-    return { type: 'system_daily_on_count' };
-  }
-  if (/(bao nhiêu|số).*(đã lưu|có).*(vị trí|location)/.test(t)) {
-    return { type: 'system_users_with_location_count' };
-  }
-  if (/(ai|những ai|bao nhiêu).*(hoạt động|active).*(hôm nay|24h|24 giờ|trong ngày)/.test(t)) {
-    return { type: 'system_recent_active' };
-  }
-
-  return null;
-}
-
-
-// Hàm gửi typing indicator
-async function sendTypingAction(chatId: number) {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) return;
-
-  const url = `https://api.telegram.org/bot${botToken}/sendChatAction`;
-
-  try {
-    await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        chat_id: chatId,
-        action: "typing",
-      }),
-    });
-  } catch (error) {
-    console.error("Lỗi gửi typing action:", error);
-  }
-}
-
-// Handler chính cho POST request
 export async function POST(req: NextRequest) {
   try {
     // 1. Xác thực webhook bằng secret token (tạm thời bỏ qua)
@@ -1184,19 +640,19 @@ export async function POST(req: NextRequest) {
       const searchQuery = text.replace(/^\/search\s+/, '').trim();
 
       if (!searchQuery) {
-        await sendTelegramMessage(chatId, "❌ Vui lòng nhập từ khóa tìm kiếm!\n\nVí dụ: `/search tin tức Việt Nam hôm nay`");
+        await sendTelegramMessage(chatId, "Vui long nhap tu khoa tim kiem. Vi du: /search tin tuc Viet Nam hom nay");
         return NextResponse.json({ ok: true });
       }
 
       await sendTypingAction(chatId);
-      await sendTelegramMessage(chatId, `🔍 Đang tìm kiếm "${searchQuery}"...`);
+      await sendTelegramMessage(chatId, `RAG dang truy xuat nguon cho "${searchQuery}"...`);
 
-      const { text: searchResults } = await searchWeb(searchQuery);
+      const ragContext = await retrieveRagContext(searchQuery);
 
-      if (searchResults) {
-        await sendTelegramMessage(chatId, searchResults);
+      if (ragContext.contextText) {
+        await sendTelegramMessage(chatId, `RAG da truy xuat ${ragContext.documents.length} nguon.${formatRagSources(ragContext.documents)}`);
       } else {
-        await sendTelegramMessage(chatId, "❌ Không tìm thấy kết quả hoặc dịch vụ tìm kiếm chưa được cấu hình.");
+        await sendTelegramMessage(chatId, "Khong tim thay nguon phu hop hoac dich vu tim kiem chua duoc cau hinh.");
       }
 
       return NextResponse.json({ ok: true });
@@ -1785,6 +1241,7 @@ export async function POST(req: NextRequest) {
     // 5. Kiểm tra xem có cần tìm kiếm web không
     let searchResults: string | null = null;
     let searchImages: string[] = [];
+    let ragSourcesText = "";
     const needsWebSearch = shouldSearchWeb(text);
     const needsImageSearch = shouldSearchImages(text);
 
@@ -1795,14 +1252,19 @@ export async function POST(req: NextRequest) {
       const requestedImageCount = parseImageCount(text);
 
       if (needsWebSearch && needsImageSearch) {
-        await sendTelegramMessage(chatId, `🔍 Đang tìm kiếm thông tin và ${requestedImageCount} hình ảnh...`);
-        const result = await searchWeb(text, true, requestedImageCount);
-        searchResults = result.text;
-        searchImages = result.images;
+        await sendTelegramMessage(chatId, `RAG dang truy xuat thong tin va ${requestedImageCount} hinh anh...`);
+        const ragContext = await retrieveRagContext(text, {
+          includeImages: true,
+          maxImages: requestedImageCount,
+        });
+        searchResults = ragContext.contextText;
+        searchImages = ragContext.images;
+        ragSourcesText = formatRagSources(ragContext.documents);
       } else if (needsWebSearch) {
-        await sendTelegramMessage(chatId, "🔍 Đang tìm kiếm thông tin mới nhất...");
-        const result = await searchWeb(text);
-        searchResults = result.text;
+        await sendTelegramMessage(chatId, "RAG dang truy xuat thong tin moi nhat...");
+        const ragContext = await retrieveRagContext(text);
+        searchResults = ragContext.contextText;
+        ragSourcesText = formatRagSources(ragContext.documents);
       } else if (needsImageSearch) {
         await sendTelegramMessage(chatId, `🖼️ Đang tìm kiếm ${requestedImageCount} hình ảnh...`);
         const result = await searchWeb(text, true, requestedImageCount);
@@ -1825,7 +1287,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 7. Lấy ngữ cảnh hội thoại từ database
-    let context: any[] = []; // Explicitly type as any[] to avoid type issues with Groq messages
+    let context: GroqMessage[] = [];
 
     try {
       if (userId) {
@@ -1882,7 +1344,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Tạo nội dung cho tin nhắn hiện tại
-    let currentMessageContent: any = text;
+    let currentMessageContent: string | GroqImageContent = text;
 
     if (imageUrl) {
       currentMessageContent = [
@@ -1911,7 +1373,7 @@ export async function POST(req: NextRequest) {
       systemPromptText += `\nHãy đề cập đến các hình ảnh này trong câu trả lời nếu phù hợp.`;
     }
 
-    const messages: any[] = [
+    const messages: GroqMessage[] = [
       { role: "system", content: systemPromptText },
       ...context,
       { role: "user", content: currentMessageContent },
@@ -1944,6 +1406,10 @@ export async function POST(req: NextRequest) {
       }
     } finally {
       clearTimeout(timeoutId);
+    }
+
+    if (ragSourcesText && !reply.includes("Nguon:")) {
+      reply += ragSourcesText;
     }
 
     // 8. Lưu ngữ cảnh mới vào database (không lưu ảnh để tiết kiệm storage)
